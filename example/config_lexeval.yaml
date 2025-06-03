@@ -1,0 +1,11 @@
+args:
+  models: ["/haitao/workspace/verl-3/output/train_v4/global_step_4758"]
+  datasets: ["LexEval"]
+  accelerator: "vllm"
+  num_workers: 8
+  tensor_parallel: 1
+  temperature: 0
+  top_p: 0.9
+  max_tokens: 8192
+  batch_size: 8
+  resume: null

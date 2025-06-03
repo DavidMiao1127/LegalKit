@@ -1,0 +1,13 @@
+args:
+  models: ["/haitao/workspace/model/Qwen3-4B"]
+  datasets: ["JECQA"]
+  sub_tasks: ["0_test"]
+  accelerator: "lmdeploy"
+  num_workers: 8
+  tensor_parallel: 1
+  temperature: 0.6
+  top_p: 0.9
+  max_tokens: 16384
+  batch_size: 8
+  repetition_penalty: 1.2
+  resume: null

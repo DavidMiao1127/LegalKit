@@ -1,0 +1,33 @@
+# pyproject.toml
+[project]
+name = "legalkit"
+version = "0.1.0"
+description = "A modular evaluation toolkit for legal-domain language models"
+authors = [
+    {name = "LegalKit Authors", email = "opensource@example.com"}
+]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+dependencies = [
+    "vllm",
+    "lmdeploy",
+    "pyyaml",
+    "scikit-learn",
+    "tqdm",
+    "cn2an",
+    "rouge_chinese",
+    "transformers",
+    "nltk",
+    "jieba",
+    "datasets",
+    "fire",
+    "openpyxl"
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["legalkit"]
