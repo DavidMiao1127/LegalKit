@@ -1,5 +1,7 @@
 # LegalKit
 
+[中文文档 / Chinese README](./README_zh.md)
+
 **LegalKit** is a practical and extensible evaluation toolkit for legal-domain Large Language Models (LLMs). It unifies **dataset adapters, model generation, offline JSON evaluation, and LLM-as-Judge scoring** into a single workflow, and provides an optional lightweight Web UI for non-terminal users.
 
 ---
