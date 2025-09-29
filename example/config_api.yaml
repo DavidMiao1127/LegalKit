@@ -1,8 +1,7 @@
 args:
   models: ["api:Qwen/Qwen3-8B"]
   api_url: https://api.siliconflow.cn/v1/chat/completions
-  api_key: sk-ylmpihzxhcjcmralmhgzoxhdzvfbmxkdcelnlcrqqhjisvky
-  datasets: ["JECQA"]
+  api_key: ${API_KEY}
   sub_tasks: ["0_test"]
   temperature: 0.6
   top_p: 0.9

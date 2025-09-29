@@ -1,5 +1,5 @@
 args:
-  models: ["/data/ms-swift-main/megatron_output/Qwen3-4B/v10-20250603-201724/fp32"]
+  models: ["/path/to/your/model"]
   datasets: ["JECQA"]
   accelerator: "lmdeploy"
   num_workers: 8
