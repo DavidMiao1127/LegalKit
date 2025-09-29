@@ -1,11 +1,13 @@
 args:
-  models: ["/haitao/workspace/verl-3/output/train_v4/global_step_4758"]
+  models: ["/data/ms-swift-main/megatron_output/Qwen3-4B/v10-20250603-201724/fp32"]
   datasets: ["LexEval"]
-  accelerator: "vllm"
+  sub_tasks: ["1_1", "1_2", "3_1", "3_2", "3_3", "3_4", "3_5", "3_6"]
+  accelerator: "lmdeploy"
   num_workers: 8
   tensor_parallel: 1
-  temperature: 0
+  temperature: 0.6
   top_p: 0.9
-  max_tokens: 8192
+  max_tokens: 16384
   batch_size: 8
+  repetition_penalty: 1
   resume: null

@@ -8,5 +8,5 @@ class Generator:
         self.model = model
 
     def generate(self, task_id: str, record: Dict) -> str:
-        prompt = f"{record['instruction']}\n{record['question']}"
+        prompt = f"{record['prompt']}"
         return self.model.generate(prompt)

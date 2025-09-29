@@ -1,13 +1,12 @@
 args:
-  models: ["/haitao/workspace/model/Qwen3-4B"]
+  models: ["/data/ms-swift-main/megatron_output/Qwen3-4B/v10-20250603-201724/fp32"]
   datasets: ["JECQA"]
-  sub_tasks: ["0_test"]
   accelerator: "lmdeploy"
   num_workers: 8
   tensor_parallel: 1
   temperature: 0.6
   top_p: 0.9
-  max_tokens: 16384
+  max_tokens: 4096
   batch_size: 8
   repetition_penalty: 1.2
   resume: null

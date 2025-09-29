@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LegalKit：法律模型快速评测工具包</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-scales"></i>
+                LegalKit：法律模型快速评测工具包
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="#dashboard">评测任务</a>
+                <a class="nav-link" href="#results">结果查看</a>
+                <a class="nav-link" href="#system">系统信息</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- 页面导航标签 -->
+        <ul class="nav nav-tabs mb-4" id="mainTabs">
+            <li class="nav-item">
+                <a class="nav-link active" data-bs-toggle="tab" href="#dashboard">
+                    <i class="bi bi-speedometer2"></i> 评测配置
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#results">
+                    <i class="bi bi-graph-up"></i> 结果管理
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#system">
+                    <i class="bi bi-cpu"></i> 系统状态
+                </a>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- 评测配置页面 -->
+            <div class="tab-pane fade show active" id="dashboard">
+                <div class="row">
+                    <!-- 配置表单 -->
+                    <div class="col-lg-8">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-gear"></i> 评测任务配置
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="evaluationForm">
+                                    <!-- 模型配置 -->
+                                    <div class="mb-4">
+                                        <label class="form-label fw-bold">模型配置</label>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label">模型类型</label>
+                                                <select class="form-select" id="modelType">
+                                                    <option value="local">本地模型</option>
+                                                    <option value="hf">HuggingFace模型</option>
+                                                    <option value="api">API模型</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">模型路径/名称</label>
+                                                <div class="input-group">
+                                                    <input type="text" class="form-control" id="modelPath" 
+                                                           placeholder="输入模型路径或名称">
+                                                    <button type="button" class="btn btn-outline-secondary" id="discoverModels">
+                                                        <i class="bi bi-search"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-2" id="apiConfig" style="display: none;">
+                                            <div class="col-md-6">
+                                                <label class="form-label">API URL</label>
+                                                <input type="text" class="form-control" id="apiUrl" 
+                                                       placeholder="https://api.openai.com/v1/chat/completions">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">API Key</label>
+                                                <input type="password" class="form-control" id="apiKey" 
+                                                       placeholder="your-api-key">
+                                            </div>
+                                        </div>
+                                        <div class="mt-2">
+                                            <div id="modelList"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 数据集配置 -->
+                                    <div class="mb-4">
+                                        <label class="form-label fw-bold">数据集选择</label>
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <select class="form-select" id="datasetSelect" multiple>
+                                                    <!-- 动态加载数据集 -->
+                                                </select>
+                                                <small class="form-text text-muted">按住Ctrl键可多选</small>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">子任务（可选）</label>
+                                                <input type="text" class="form-control" id="subTasks" 
+                                                       placeholder="例如: 2-1,2-2">
+                                                <small class="form-text text-muted">用逗号分隔多个子任务</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 运行配置 -->
+                                    <div class="mb-4">
+                                        <label class="form-label fw-bold">运行配置</label>
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label">任务类型</label>
+                                                <select class="form-select" id="taskPhase">
+                                                    <option value="all">完整流程</option>
+                                                    <option value="infer">仅推理</option>
+                                                    <option value="eval">仅评估</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">加速器</label>
+                                                <select class="form-select" id="accelerator">
+                                                    <option value="">无</option>
+                                                    <option value="vllm">VLLM</option>
+                                                    <option value="lmdeploy">LMDeploy</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">并行工作进程</label>
+                                                <input type="number" class="form-control" id="numWorkers" 
+                                                       value="1" min="1" max="8">
+                                            </div>
+                                        </div>
+                                        <div class="row mt-2">
+                                            <div class="col-md-4">
+                                                <label class="form-label">张量并行度</label>
+                                                <input type="number" class="form-control" id="tensorParallel" 
+                                                       value="1" min="1" max="8">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">批次大小</label>
+                                                <input type="number" class="form-control" id="batchSize" 
+                                                       value="1" min="1" max="32">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 生成参数 -->
+                                    <div class="mb-4">
+                                        <label class="form-label fw-bold">生成参数</label>
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <label class="form-label">温度</label>
+                                                <input type="number" class="form-control" id="temperature" 
+                                                       value="0.7" min="0" max="2" step="0.1">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Top-p</label>
+                                                <input type="number" class="form-control" id="topP" 
+                                                       value="0.9" min="0" max="1" step="0.1">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">最大Token数</label>
+                                                <input type="number" class="form-control" id="maxTokens" 
+                                                       value="2048" min="1" max="32768">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">重复惩罚</label>
+                                                <input type="number" class="form-control" id="repetitionPenalty" 
+                                                       value="1.0" min="1" max="2" step="0.1">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- JSON 离线评测 -->
+                                    <div class="mb-4">
+                                        <label class="form-label fw-bold">JSON 离线评测 (可选)</label>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="jsonEvalSwitch">
+                                            <label class="form-check-label" for="jsonEvalSwitch">启用 JSON 预测文件直接评测（跳过推理）</label>
+                                        </div>
+                                        <div id="jsonEvalConfig" class="mt-2" style="display:none;">
+                                            <label class="form-label">JSON 文件路径（多数据集用 dataset=path，每行一个）</label>
+                                            <textarea class="form-control" id="jsonPaths" rows="3" placeholder="CaseGen=/path/to/casegen_preds.json"></textarea>
+                                            <div class="row mt-2">
+                                                <div class="col-md-6">
+                                                    <label class="form-label">评测模型标签</label>
+                                                    <input type="text" class="form-control" id="jsonModelLabel" placeholder="json_eval">
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label">覆盖任务类型</label>
+                                                    <input type="text" disabled class="form-control" value="自动设为 eval">
+                                                </div>
+                                            </div>
+                                            <small class="text-muted">若未指定 models，将自动注入占位模型 json::label</small>
+                                        </div>
+                                    </div>
+
+                                    <!-- LLM Judge 配置 -->
+                                    <div class="mb-4">
+                                        <label class="form-label fw-bold">LLM 评审 (Judge) 配置 (可选)</label>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="judgeSwitch">
+                                            <label class="form-check-label" for="judgeSwitch">启用 LLM 作为评审</label>
+                                        </div>
+                                        <div id="judgeConfig" class="mt-2" style="display:none;">
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Judge 模型 Spec</label>
+                                                    <input type="text" class="form-control" id="judgeModelSpec" placeholder="hf:Qwen/Qwen2.5-7B">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Batch</label>
+                                                    <input type="number" class="form-control" id="judgeBatchSize" value="4" min="1" max="128">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">并行度</label>
+                                                    <input type="number" class="form-control" id="judgeTensorParallel" value="1" min="1" max="8">
+                                                </div>
+                                            </div>
+                                            <div class="row mt-2">
+                                                <div class="col-md-3">
+                                                    <label class="form-label">温度</label>
+                                                    <input type="number" class="form-control" id="judgeTemperature" value="0" min="0" max="2" step="0.1">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Top-p</label>
+                                                    <input type="number" class="form-control" id="judgeTopP" value="1.0" min="0" max="1" step="0.05">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">MaxTokens</label>
+                                                    <input type="number" class="form-control" id="judgeMaxTokens" value="512" min="16" max="32768">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">重复惩罚</label>
+                                                    <input type="number" class="form-control" id="judgeRepPenalty" value="1.0" min="1" max="2" step="0.1">
+                                                </div>
+                                            </div>
+                                            <div class="row mt-2">
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Judge 加速器</label>
+                                                    <select class="form-select" id="judgeAccelerator">
+                                                        <option value="">无</option>
+                                                        <option value="vllm">vllm</option>
+                                                        <option value="lmdeploy">lmdeploy</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label">API 模式 (可选)</label>
+                                                    <input type="text" class="form-control" id="judgeApiUrl" placeholder="https://api.example.com/v1/chat">
+                                                </div>
+                                            </div>
+                                            <div class="row mt-2">
+                                                <div class="col-md-6">
+                                                    <label class="form-label">API Key</label>
+                                                    <input type="password" class="form-control" id="judgeApiKey" placeholder="judge-api-key">
+                                                </div>
+                                            </div>
+                                            <small class="text-muted">Judge 模型与主模型解耦，仅在评测阶段调用。</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="d-grid">
+                                        <button type="submit" class="btn btn-primary btn-lg">
+                                            <i class="bi bi-play-circle"></i> 开始评测
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 系统状态信息 -->
+                    <div class="col-lg-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-info-circle"></i> 系统状态
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="systemInfo">
+                                    <div class="d-flex justify-content-center">
+                                        <div class="spinner-border" role="status">
+                                            <span class="visually-hidden">加载中...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-clock-history"></i> 最近任务
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="recentTasks">
+                                    <p class="text-muted">暂无任务</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 结果管理页面 -->
+            <div class="tab-pane fade" id="results">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-list-task"></i> 任务列表
+                        </h5>
+                        <button class="btn btn-outline-primary btn-sm" id="refreshTasks">
+                            <i class="bi bi-arrow-clockwise"></i> 刷新
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="tasksList">
+                            <div class="d-flex justify-content-center">
+                                <div class="spinner-border" role="status">
+                                    <span class="visually-hidden">加载中...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 系统信息页面 -->
+            <div class="tab-pane fade" id="system">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-gpu-card"></i> GPU信息
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="gpuInfo"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-database"></i> 支持的数据集
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="supportedDatasets"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 任务详情模态框 -->
+    <div class="modal fade" id="taskDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">任务详情</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="taskDetailContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 结果查看模态框 -->
+    <div class="modal fade" id="resultsModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">评测结果</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="resultsContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

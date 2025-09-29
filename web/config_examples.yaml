@@ -1,0 +1,73 @@
+# LegalKit Web Interface 配置示例
+
+# 本地模型示例配置
+local_model_config:
+  models: 
+    - "/path/to/your/local/model"  # 替换为实际的模型路径
+  datasets: 
+    - "LawBench"
+  sub_tasks: 
+    - "2-1"
+  accelerator: "vllm"
+  num_workers: 2
+  tensor_parallel: 1
+  temperature: 0.7
+  top_p: 0.9
+  max_tokens: 2048
+  batch_size: 4
+
+# HuggingFace模型示例配置
+huggingface_model_config:
+  models: 
+    - "hf:Qwen/Qwen2-1.5B-Instruct"
+  datasets: 
+    - "LawBench"
+    - "LexEval"
+  task: "all"
+  num_workers: 1
+  tensor_parallel: 1
+  temperature: 0.6
+  top_p: 0.9
+  max_tokens: 4096
+  batch_size: 2
+
+# API模型示例配置
+api_model_config:
+  models: 
+    - "api:gpt-3.5-turbo"
+  api_url: "https://api.openai.com/v1/chat/completions"
+  api_key: "your-api-key-here"  # 替换为实际的API密钥
+  datasets: 
+    - "JECQA"
+  sub_tasks: 
+    - "0_test"
+  temperature: 0.8
+  top_p: 0.95
+  max_tokens: 1024
+  batch_size: 1
+  repetition_penalty: 1.1
+
+# 系统要求和建议
+system_requirements:
+  python: ">=3.8"
+  torch: ">=1.8.0"
+  cuda: ">=11.0"  # 可选，用于GPU加速
+  memory: ">=8GB"  # 推荐内存
+  gpu_memory: ">=6GB"  # 推荐GPU内存（如使用GPU）
+
+# 性能优化建议
+performance_tips:
+  - "使用GPU可显著提升推理速度"
+  - "适当增加batch_size可提高吞吐量"
+  - "使用VLLM加速器适合大规模推理"
+  - "tensor_parallel适用于单模型多GPU部署"
+  - "num_workers适用于多模型并行评测"
+
+# 常用数据集说明
+datasets_info:
+  LawBench: "中文法律基准测试，包含多个法律任务"
+  LexEval: "法律语言理解评估基准"
+  JECQA: "司法考试问答数据集"
+  CaseGen: "案例生成评测数据集"
+  LAiW: "法律AI工作坊数据集"
+  LegalBench: "英文法律基准测试"
