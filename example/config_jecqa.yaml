@@ -2,6 +2,7 @@ args:
   models: ["/path/to/your/model"]
   datasets: ["JECQA"]
   accelerator: "lmdeploy"
+  sub_tasks: ["0_test"]
   num_workers: 8
   tensor_parallel: 1
   temperature: 0.6

@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Iterable
 from legalkit.datasets.base import BaseEvaluator
 from legalkit.datasets.utils import clean_prediction
 import re
@@ -24,6 +24,24 @@ def _extract_choice_seq(s: str) -> str:
     letters = [c.upper() for c in s if c.upper() in "ABCDE"]
     return "".join(OrderedDict.fromkeys(letters))
 
+def _answer_to_seq(answer) -> str:
+    """Normalize gold answer which may be a list of letters or a string."""
+    if answer is None:
+        return ""
+    if isinstance(answer, (list, tuple, set)):
+        # Flatten to unique uppercase A-E without order
+        uniq = []
+        for x in answer:
+            if not x:
+                continue
+            for ch in str(x):
+                u = ch.upper()
+                if u in "ABCDE" and u not in uniq:
+                    uniq.append(u)
+        return "".join(uniq)
+    # string path
+    return _extract_choice_seq(str(answer))
+
 class Evaluator(BaseEvaluator):
     def evaluate(
         self,
@@ -41,12 +59,13 @@ class Evaluator(BaseEvaluator):
             gold_raw = rec.get('answer', '')
             pred_raw = clean_prediction(predictions.get(rec['id'], ''))
 
-            gold_seq = _extract_choice_seq(gold_raw)
+            gold_seq = _answer_to_seq(gold_raw)
             pred_seq = _extract_choice_seq(pred_raw)
 
             if gold_seq:
                 total += 1
-                if pred_seq == gold_seq:
+                # Order-insensitive comparison by set of unique letters
+                if set(gold_seq) == set(pred_seq):
                     correct += 1
 
         acc = (correct / total) if total else 0.0

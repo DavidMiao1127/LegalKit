@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument("--config", type=str, help="YAML config file path")
     parser.add_argument("--models", nargs='+', help="Model specs: local paths, hf shortcuts, or api labels")
     parser.add_argument("--datasets", nargs='+', help="Dataset names")
-    parser.add_argument("-a", "--accelerator", choices=["vllm", "lmdeploy"], help="Acceleration backend")
+    parser.add_argument("-a", "--accelerator", choices=["vllm", "lmdeploy", "sglang"], help="Acceleration backend")
     parser.add_argument("--num_workers", type=int, help="Number of parallel workers (data parallelism)")
     parser.add_argument("--tensor_parallel", type=int, help="Tensor parallelism degree (model parallelism)")
     parser.add_argument("--task", choices=["infer", "eval", "all"], help="Phase to run")
@@ -54,6 +54,7 @@ def parse_args():
     parser.add_argument("--judge_repetition_penalty", type=float, help="Repetition penalty for judge model")
     parser.add_argument("--judge_api_url", type=str, help="Override API URL for judge model")
     parser.add_argument("--judge_api_key", type=str, help="Override API key for judge model")
+    parser.add_argument("--few_shot", action="store_true", help="Enable few-shot prompting")
     return parser.parse_args()
 
 def load_config(path):
@@ -239,6 +240,11 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
     json_model_label = merged_args.get("json_model_label") or "json_eval"
     requires_inference = (task_phase in ("infer", "all")) and not json_eval_mode
     judge_cfg_dict = merged_args.get("judge_config")
+    # Set generic few-shot environment flag per worker
+    if merged_args.get("few_shot"):
+        os.environ["FEW_SHOT"] = "1"
+    else:
+        os.environ.pop("FEW_SHOT", None)
     judge_runner = None
     if worker_id == 0 and judge_cfg_dict:
         judge_runner = LLMJudgeRunner(JudgeConfig(**judge_cfg_dict), worker_id=worker_id)
