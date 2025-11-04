@@ -12,7 +12,7 @@ class CaseGenDataset(BaseDataset):
         # dataset root relative to this file
         pkg_dir = os.path.dirname(__file__)
         self.tasks_dir = os.path.abspath(
-            os.path.join(pkg_dir, '..', '..', '..', 'data', 'CaseGen')
+            os.path.join(pkg_dir, '..', '..', '..', 'data', 'CaseGen', 'prompt')
         )
         self.sub_tasks = sub_tasks
 
@@ -34,11 +34,16 @@ class CaseGenDataset(BaseDataset):
                     items = json.load(f)
             records = []
             for idx, item in enumerate(items):
+                rec_id = item.get('id', idx)
+                prompt = item.get('prompt', '')
+
                 records.append({
-                    'id': idx,
-                    'instruction': item.get('instruction', ''),
-                    'question': item.get('input', ''),
-                    'answer': item.get('answer', '')
+                    'id': rec_id,
+                    'prompt': prompt,
+                    'defense': item.get('defense', ''),
+                    'fact': item.get('fact', ''),
+                    'reasoning': item.get('reasoning', ''),
+                    'judgment': item.get('judgment', ''),
                 })
             tasks.append(Task(id=task_id, records=records))
         return tasks

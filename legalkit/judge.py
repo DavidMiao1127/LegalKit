@@ -70,12 +70,17 @@ class LLMJudgeRunner:
 
         kwargs = self._resolve_model_kwargs()
         kwargs.setdefault("gen_cfg", self.config.gen_cfg)
-        kwargs.setdefault("worker_id", self.worker_id)
 
         if kwargs["model_type"] == "local":
             kwargs.setdefault("device", "meta" if self.config.accelerator else "cuda")
+            # LocalModel requires worker_id for logging/cleanup
+            kwargs.setdefault("worker_id", self.worker_id)
         elif kwargs["model_type"] == "hf":
             kwargs.setdefault("device", "cuda")
+            # Do not pass worker_id; constructor doesn't support it
+        elif kwargs["model_type"] == "api":
+            # APIModel does not accept worker_id; ensure only supported kwargs are passed
+            kwargs.pop("worker_id", None)
 
         model = build_model(**kwargs)
         model = self._wrap_accelerator(model)
@@ -86,13 +91,29 @@ class LLMJudgeRunner:
     def batch_size(self) -> int:
         return max(1, int(self.config.batch_size or 1))
 
-    def generate(self, prompts: List[str]) -> List[str]:
+    def generate(
+        self,
+        prompts: List[str],
+        progress: Optional[Any] = None,
+        batch_callback: Optional[Any] = None
+    ) -> List[str]:
         model = self._ensure_model()
         outputs: List[str] = []
         bs = self.batch_size
         for idx in range(0, len(prompts), bs):
             batch = prompts[idx: idx + bs]
-            outputs.extend(model.generate(batch))
+            batch_outputs = model.generate(batch)
+            if batch_callback is not None:
+                try:
+                    batch_callback(idx, batch_outputs)
+                except Exception:
+                    pass
+            outputs.extend(batch_outputs)
+            if progress is not None:
+                try:
+                    progress(len(batch_outputs))
+                except Exception:
+                    pass
         return outputs
 
     def close(self):

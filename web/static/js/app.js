@@ -5,11 +5,13 @@ class LegalKitApp {
         this.baseUrl = '/api';
         this.tasks = new Map();
         this.refreshInterval = null;
+        this.lang = (localStorage.getItem('ui_lang') || 'en');
         this.init();
     }
 
     async init() {
         this.setupEventListeners();
+        this.applyStaticTranslations();
         await this.loadInitialData();
         this.startAutoRefresh();
     }
@@ -52,6 +54,15 @@ class LegalKitApp {
             this.loadTasks();
         });
 
+        // Language toggle button
+        const langBtn = document.getElementById('langToggle');
+        if (langBtn) {
+            langBtn.addEventListener('click', () => {
+                const next = this.lang === 'en' ? 'zh' : 'en';
+                this.setLanguage(next);
+            });
+        }
+
         // Tab switching
         document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
             tab.addEventListener('shown.bs.tab', (e) => {
@@ -65,6 +76,56 @@ class LegalKitApp {
         });
     }
 
+    setLanguage(lang) {
+        this.lang = lang;
+        localStorage.setItem('ui_lang', lang);
+        this.applyStaticTranslations();
+        // Reload dynamic panels to reflect i18n texts
+        this.loadSystemInfo();
+        this.loadRecentTasks();
+        if (document.querySelector('[href="#results"]').classList.contains('active')) {
+            this.loadTasks();
+        }
+    }
+
+    t(key) {
+        return (I18N[this.lang] && I18N[this.lang][key]) || key;
+    }
+
+    applyStaticTranslations() {
+        // Update document title and html lang
+        document.documentElement.setAttribute('lang', this.lang === 'zh' ? 'zh' : 'en');
+        document.title = this.t('title');
+        // Update any element with data-i18n
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (key) {
+                el.textContent = this.t(key);
+            }
+        });
+        // Update placeholders
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            if (key) {
+                el.setAttribute('placeholder', this.t(key));
+            }
+        });
+        // Update values (for disabled/display-only inputs)
+        document.querySelectorAll('[data-i18n-value]').forEach(el => {
+            const key = el.getAttribute('data-i18n-value');
+            if (key) {
+                el.value = this.t(key);
+            }
+        });
+        // Update language button label: show the target language label for clarity
+        const langBtn = document.getElementById('langToggle');
+        if (langBtn) {
+            langBtn.innerHTML = this.lang === 'en'
+                ? '<i class="bi bi-translate"></i> 中文'
+                : '<i class="bi bi-translate"></i> EN';
+        }
+    }
+
     async loadInitialData() {
         try {
             await Promise.all([
@@ -73,7 +134,7 @@ class LegalKitApp {
                 this.loadRecentTasks()
             ]);
         } catch (error) {
-            this.showError('加载初始数据失败: ' + error.message);
+            this.showError(this.t('err_init') + error.message);
         }
     }
 
@@ -93,7 +154,7 @@ class LegalKitApp {
             });
         } catch (error) {
             console.error('Error loading datasets:', error);
-            this.showError('加载数据集失败');
+            this.showError(this.t('err_load_datasets'));
         }
     }
 
@@ -108,7 +169,7 @@ class LegalKitApp {
         } catch (error) {
             console.error('Error loading system info:', error);
             document.getElementById('systemInfo').innerHTML = 
-                '<div class="alert alert-danger">加载系统信息失败</div>';
+                `<div class="alert alert-danger">${this.t('err_load_system')}</div>`;
         }
     }
 
@@ -117,25 +178,25 @@ class LegalKitApp {
         systemInfoDiv.innerHTML = `
             <div class="system-metric">
                 <span class="metric-value">${info.gpu_count}</span>
-                <span class="metric-label">可用GPU</span>
+                <span class="metric-label">${this.t('metric_gpu_available')}</span>
             </div>
             <div class="row">
                 <div class="col-4">
                     <div class="text-center">
                         <strong>12</strong><br>
-                        <small class="text-muted">数据集</small>
+                        <small class="text-muted">${this.t('metric_datasets')}</small>
                     </div>
                 </div>
                 <div class="col-4">
                     <div class="text-center">
                         <strong>${info.accelerators.length}</strong><br>
-                        <small class="text-muted">加速器</small>
+                        <small class="text-muted">${this.t('metric_accelerators')}</small>
                     </div>
                 </div>
                 <div class="col-4">
                     <div class="text-center">
                         <strong>6</strong><br>
-                        <small class="text-muted">任务类型</small>
+                        <small class="text-muted">${this.t('metric_task_types')}</small>
                     </div>
                 </div>
             </div>
@@ -145,7 +206,7 @@ class LegalKitApp {
     displayGpuInfo(gpuInfo) {
         const gpuInfoDiv = document.getElementById('gpuInfo');
         if (!gpuInfo || gpuInfo.length === 0) {
-            gpuInfoDiv.innerHTML = '<div class="alert alert-warning">未检测到GPU</div>';
+            gpuInfoDiv.innerHTML = `<div class="alert alert-warning">${this.t('no_gpu')}</div>`;
             return;
         }
 
@@ -193,7 +254,7 @@ class LegalKitApp {
         const recentTasksDiv = document.getElementById('recentTasks');
         
         if (tasks.length === 0) {
-            recentTasksDiv.innerHTML = '<p class="text-muted">暂无任务</p>';
+            recentTasksDiv.innerHTML = `<p class="text-muted">${this.t('no_tasks')}</p>`;
             return;
         }
 
@@ -218,7 +279,7 @@ class LegalKitApp {
             this.displayTasksList(tasks);
         } catch (error) {
             console.error('Error loading tasks:', error);
-            this.showError('加载任务列表失败');
+            this.showError(this.t('err_load_tasks'));
         }
     }
 
@@ -226,7 +287,7 @@ class LegalKitApp {
         const tasksListDiv = document.getElementById('tasksList');
         
         if (tasks.length === 0) {
-            tasksListDiv.innerHTML = '<div class="alert alert-info">暂无评测任务</div>';
+            tasksListDiv.innerHTML = `<div class="alert alert-info">${this.t('no_eval_tasks')}</div>`;
             return;
         }
 
@@ -235,13 +296,13 @@ class LegalKitApp {
                 <table class="table table-hover">
                     <thead>
                         <tr>
-                            <th>任务ID</th>
-                            <th>状态</th>
-                            <th>数据集</th>
-                            <th>模型</th>
-                            <th>创建时间</th>
-                            <th>进度</th>
-                            <th>操作</th>
+                            <th>${this.t('detail_task_id')}</th>
+                            <th>${this.t('detail_status')}</th>
+                            <th>${this.t('metric_datasets')}</th>
+                            <th>${this.t('model')}</th>
+                            <th>${this.t('detail_created_at')}</th>
+                            <th>${this.t('detail_progress')}</th>
+                            <th>${this.t('action')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -303,7 +364,7 @@ class LegalKitApp {
     async discoverModels() {
         const modelPath = document.getElementById('modelPath').value;
         if (!modelPath) {
-            this.showError('请输入模型路径');
+            this.showError(this.t('err_input_model_path'));
             return;
         }
 
@@ -318,10 +379,10 @@ class LegalKitApp {
             if (response.ok) {
                 this.displayDiscoveredModels(result);
             } else {
-                this.showError(result.error || '模型发现失败');
+                this.showError(result.error || this.t('err_model_discovery_failed'));
             }
         } catch (error) {
-            this.showError('模型发现失败: ' + error.message);
+            this.showError(this.t('err_model_discovery_failed') + ': ' + error.message);
         }
     }
 
@@ -329,7 +390,7 @@ class LegalKitApp {
         const modelListDiv = document.getElementById('modelList');
         
         if (models.length === 0) {
-            modelListDiv.innerHTML = '<div class="alert alert-warning">未找到有效模型</div>';
+            modelListDiv.innerHTML = `<div class="alert alert-warning">${this.t('no_valid_models')}</div>`;
             return;
         }
 
@@ -342,7 +403,7 @@ class LegalKitApp {
 
         modelListDiv.innerHTML = `
             <div class="mt-2">
-                <strong>发现的模型:</strong>
+                <strong>${this.t('discovered_models')}</strong>
                 ${modelItems}
             </div>
         `;
@@ -361,15 +422,15 @@ class LegalKitApp {
 
             const result = await response.json();
             if (response.ok) {
-                this.showSuccess(`任务提交成功! 任务ID: ${result.task_id}`);
+                this.showSuccess(`${this.t('submit_success_prefix')}${result.task_id}`);
                 this.loadRecentTasks();
                 // Switch to results tab
                 document.querySelector('[href="#results"]').click();
             } else {
-                this.showError(result.error || '任务提交失败');
+                this.showError(result.error || this.t('err_task_submit_failed'));
             }
         } catch (error) {
-            this.showError('任务提交失败: ' + error.message);
+            this.showError(this.t('err_task_submit_failed') + ': ' + error.message);
         }
     }
 
@@ -465,23 +526,23 @@ class LegalKitApp {
 
     validateConfig(config) {
         if (!config.models || config.models.length === 0) {
-            throw new Error('请指定至少一个模型');
+            throw new Error(this.t('validate_need_model'));
         }
 
         if (!config.datasets || config.datasets.length === 0) {
-            throw new Error('请选择至少一个数据集');
+            throw new Error(this.t('validate_need_dataset'));
         }
 
         if (config.models.some(m => m.startsWith('api:')) && (!config.api_url || !config.api_key)) {
-            throw new Error('API模型需要提供API URL和API Key');
+            throw new Error(this.t('validate_need_api'));
         }
 
         if (config.json_eval) {
             if (!config.json_paths || config.json_paths.length === 0) {
-                throw new Error('JSON 评测模式需要提供 json_paths');
+                throw new Error(this.t('validate_need_json_paths'));
             }
             if (config.task !== 'eval') {
-                throw new Error('JSON 评测模式下任务类型必须为 eval');
+                throw new Error(this.t('validate_json_task_eval'));
             }
         }
         if (config.judge && !config.judge_batch_size) {
@@ -496,13 +557,13 @@ class LegalKitApp {
             const task = await response.json();
 
             if (!response.ok) {
-                throw new Error(task.error || '获取任务详情失败');
+                throw new Error(task.error || this.t('err_get_task_detail'));
             }
 
             this.displayTaskDetail(task);
             new bootstrap.Modal(document.getElementById('taskDetailModal')).show();
         } catch (error) {
-            this.showError('获取任务详情失败: ' + error.message);
+            this.showError(this.t('err_get_task_detail') + ': ' + error.message);
         }
     }
 
@@ -510,24 +571,24 @@ class LegalKitApp {
         const content = `
             <div class="row">
                 <div class="col-md-6">
-                    <h6>基本信息</h6>
+                    <h6>${this.t('detail_basic')}</h6>
                     <table class="table table-sm">
-                        <tr><td>任务ID</td><td><code>${task.id}</code></td></tr>
-                        <tr><td>状态</td><td><span class="status-badge status-${task.status}">${this.getStatusText(task.status)}</span></td></tr>
-                        <tr><td>创建时间</td><td>${this.formatDate(task.created_at)}</td></tr>
-                        <tr><td>开始时间</td><td>${task.started_at ? this.formatDate(task.started_at) : '-'}</td></tr>
-                        <tr><td>完成时间</td><td>${task.completed_at ? this.formatDate(task.completed_at) : '-'}</td></tr>
-                        <tr><td>进度</td><td>${task.progress || 0}%</td></tr>
+                        <tr><td>${this.t('detail_task_id')}</td><td><code>${task.id}</code></td></tr>
+                        <tr><td>${this.t('detail_status')}</td><td><span class="status-badge status-${task.status}">${this.getStatusText(task.status)}</span></td></tr>
+                        <tr><td>${this.t('detail_created_at')}</td><td>${this.formatDate(task.created_at)}</td></tr>
+                        <tr><td>${this.t('detail_started_at')}</td><td>${task.started_at ? this.formatDate(task.started_at) : '-'}</td></tr>
+                        <tr><td>${this.t('detail_completed_at')}</td><td>${task.completed_at ? this.formatDate(task.completed_at) : '-'}</td></tr>
+                        <tr><td>${this.t('detail_progress')}</td><td>${task.progress || 0}%</td></tr>
                     </table>
                 </div>
                 <div class="col-md-6">
-                    <h6>配置参数</h6>
+                    <h6>${this.t('detail_config')}</h6>
                     <pre class="bg-light p-2 rounded"><code>${JSON.stringify(task.config, null, 2)}</code></pre>
                 </div>
             </div>
             ${task.error ? `
                 <div class="mt-3">
-                    <h6>错误信息</h6>
+                    <h6>${this.t('detail_error')}</h6>
                     <div class="alert alert-danger">${task.error}</div>
                 </div>
             ` : ''}
@@ -542,13 +603,13 @@ class LegalKitApp {
             const results = await response.json();
 
             if (!response.ok) {
-                throw new Error(results.error || '获取结果失败');
+                throw new Error(results.error || this.t('err_get_results'));
             }
 
             this.displayTaskResults(results);
             new bootstrap.Modal(document.getElementById('resultsModal')).show();
         } catch (error) {
-            this.showError('获取结果失败: ' + error.message);
+            this.showError(this.t('err_get_results') + ': ' + error.message);
         }
     }
 
@@ -579,18 +640,18 @@ class LegalKitApp {
             content += `<div class="col-12 mb-4"><h5>${modelId}</h5>`;
             Object.entries(modelResults).forEach(([taskId, result]) => {
                 const groups = groupMetricKeys(result);
-                const primaryScore = result.score;
+                                const primaryScore = result.score;
                 content += `
                     <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                         <span><code>${taskId}</code></span>
-                        <span class="score-badge ${this.getScoreClass(primaryScore)}">${primaryScore !== undefined ? primaryScore.toFixed(3) : 'N/A'}</span>
+                                                <span class="score-badge ${this.getScoreClass(primaryScore)}">${primaryScore !== undefined ? primaryScore.toFixed(3) : this.t('na')}</span>
                       </div>
                       <div class="card-body">
-                        ${renderGroup('主指标', groups.primary)}
-                        ${renderGroup('LLM Judge 指标', groups.judge)}
-                        ${renderGroup('经典指标 (BLEU/Rouge/BERTScore)', groups.classic)}
-                        ${renderGroup('其它', groups.other)}
+                                                ${renderGroup(this.t('results_primary'), groups.primary)}
+                                                ${renderGroup(this.t('results_judge'), groups.judge)}
+                                                ${renderGroup(this.t('results_classic'), groups.classic)}
+                                                ${renderGroup(this.t('results_other'), groups.other)}
                       </div>
                     </div>`;
             });
@@ -618,16 +679,17 @@ class LegalKitApp {
 
     getStatusText(status) {
         const statusMap = {
-            'pending': '等待中',
-            'running': '运行中',
-            'completed': '已完成',
-            'failed': '失败'
+            'pending': this.t('status_pending'),
+            'running': this.t('status_running'),
+            'completed': this.t('status_completed'),
+            'failed': this.t('status_failed')
         };
         return statusMap[status] || status;
     }
 
     formatDate(dateString) {
-        return new Date(dateString).toLocaleString('zh-CN');
+        const locale = this.lang === 'zh' ? 'zh-CN' : 'en-US';
+        return new Date(dateString).toLocaleString(locale);
     }
 
     showSuccess(message) {
@@ -662,3 +724,245 @@ class LegalKitApp {
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new LegalKitApp();
 });
+
+// i18n resources
+const I18N = {
+    en: {
+        title: 'LegalKit: Legal Model Evaluation Toolkit',
+        brand: 'LegalKit: Legal Model Evaluation Toolkit',
+        nav_dashboard: 'Evaluation',
+        nav_results: 'Results',
+        nav_system: 'System',
+        tab_eval_config: 'Evaluation Config',
+        tab_results_mgmt: 'Results Management',
+        tab_system_status: 'System Status',
+        settings_title: 'Task Settings',
+        system_title: 'System Status',
+        recent_title: 'Recent Tasks',
+        tasks_title: 'Tasks',
+        refresh: 'Refresh',
+        gpu_title: 'GPU Info',
+        datasets_title: 'Supported Datasets',
+        start_eval: 'Start Evaluation',
+    model: 'Model',
+    action: 'Action',
+    modal_task_detail: 'Task Detail',
+    modal_results: 'Evaluation Results',
+        // Form sections and labels
+        section_model_config_title: 'Model Configuration',
+        label_model_type: 'Model Type',
+        opt_model_local: 'Local model',
+        opt_model_hf: 'HuggingFace',
+        opt_model_api: 'API model',
+        label_model_path: 'Model path/name',
+        ph_model_path: 'Enter model path or name',
+        label_dataset_select: 'Dataset Selection',
+        hint_multi_select: 'Hold Ctrl to multi-select',
+        label_subtasks: 'Subtasks (optional)',
+        ph_subtasks: 'e.g.: 2-1,2-2',
+        hint_subtasks: 'Separate multiple subtasks with commas',
+        section_run_config_title: 'Run Configuration',
+        label_task_type: 'Task Type',
+        opt_task_all: 'Full pipeline',
+        opt_task_infer: 'Inference only',
+        opt_task_eval: 'Evaluation only',
+        label_accelerator: 'Accelerator',
+        opt_acc_none: 'None',
+        label_num_workers: 'Worker processes',
+        label_tensor_parallel: 'Tensor parallelism',
+        label_batch_size: 'Batch size',
+        section_generation_params_title: 'Generation Parameters',
+        label_temperature: 'Temperature',
+        label_top_p: 'Top-p',
+        label_max_tokens: 'Max tokens',
+        label_repetition_penalty: 'Repetition penalty',
+        section_json_eval_title: 'JSON offline evaluation (optional)',
+        switch_json_eval: 'Enable evaluation of JSON prediction files (skip inference)',
+        label_json_paths: 'JSON file paths (use dataset=path per line)',
+        ph_json_paths: 'CaseGen=/path/to/casegen_preds.json',
+        label_json_model_label: 'Evaluation model label',
+        ph_json_model_label: 'json_eval',
+        label_override_task_type: 'Override task type',
+        override_eval_value: 'Auto-set to eval',
+        hint_json_models: 'If models are not specified, a placeholder model json::label will be injected',
+        section_judge_title: 'LLM Judge configuration (optional)',
+        switch_judge_enable: 'Use LLM as judge',
+        label_judge_model_spec: 'Judge model spec',
+        ph_judge_model_spec: 'hf:Qwen/Qwen2.5-7B',
+        label_judge_batch: 'Batch',
+        label_judge_tp: 'Tensor parallelism',
+        label_judge_temperature: 'Temperature',
+        label_judge_top_p: 'Top-p',
+        label_judge_max_tokens: 'MaxTokens',
+        label_judge_rep_penalty: 'Repetition penalty',
+        label_judge_accelerator: 'Judge accelerator',
+        opt_judge_none: 'None',
+        label_judge_api_mode: 'API mode (optional)',
+        ph_judge_api_url: 'https://api.example.com/v1/chat',
+        ph_judge_api_key: 'judge-api-key',
+        hint_judge_decoupled: 'The judge model is decoupled from the main model and used only during evaluation.',
+        loading: 'Loading...',
+        no_tasks: 'No tasks',
+        no_eval_tasks: 'No evaluation tasks',
+        no_gpu: 'No GPU detected',
+        discovered_models: 'Discovered models:',
+        no_valid_models: 'No valid models found',
+        status_pending: 'Pending',
+        status_running: 'Running',
+        status_completed: 'Completed',
+        status_failed: 'Failed',
+        metric_gpu_available: 'GPUs',
+        metric_datasets: 'Datasets',
+        metric_accelerators: 'Accelerators',
+        metric_task_types: 'Task types',
+        err_init: 'Failed to load initial data: ',
+        err_load_datasets: 'Failed to load datasets',
+        err_load_system: 'Failed to load system info',
+        err_load_tasks: 'Failed to load tasks list',
+        err_input_model_path: 'Please input model path',
+        err_model_discovery_failed: 'Model discovery failed',
+        err_task_submit_failed: 'Task submission failed',
+        err_get_task_detail: 'Failed to get task detail',
+        err_get_results: 'Failed to get results',
+        submit_success_prefix: 'Task submitted! ID: ',
+        validate_need_model: 'Please specify at least one model',
+        validate_need_dataset: 'Please select at least one dataset',
+        validate_need_api: 'API model requires API URL and API Key',
+        validate_need_json_paths: 'JSON evaluation needs json_paths',
+        validate_json_task_eval: 'Task must be eval in JSON mode',
+        detail_basic: 'Basic Info',
+        detail_task_id: 'Task ID',
+        detail_status: 'Status',
+        detail_created_at: 'Created',
+        detail_started_at: 'Started',
+        detail_completed_at: 'Completed',
+        detail_progress: 'Progress',
+        detail_config: 'Config',
+        detail_error: 'Error',
+        results_primary: 'Primary',
+        results_judge: 'LLM Judge Metrics',
+        results_classic: 'Classic Metrics (BLEU/Rouge/BERTScore)',
+        results_other: 'Other',
+        na: 'N/A',
+    },
+    zh: {
+        title: 'LegalKit：法律模型快速评测工具包',
+        brand: 'LegalKit：法律模型快速评测工具包',
+        nav_dashboard: '评测任务',
+        nav_results: '结果查看',
+        nav_system: '系统信息',
+        tab_eval_config: '评测配置',
+        tab_results_mgmt: '结果管理',
+        tab_system_status: '系统状态',
+        settings_title: '评测任务配置',
+        system_title: '系统状态',
+        recent_title: '最近任务',
+        tasks_title: '任务列表',
+        refresh: '刷新',
+        gpu_title: 'GPU信息',
+        datasets_title: '支持的数据集',
+        start_eval: '开始评测',
+    model: '模型',
+    action: '操作',
+        modal_task_detail: '任务详情',
+        modal_results: '评测结果',
+        // Form sections and labels
+        section_model_config_title: '模型配置',
+        label_model_type: '模型类型',
+        opt_model_local: '本地模型',
+        opt_model_hf: 'HuggingFace模型',
+        opt_model_api: 'API模型',
+        label_model_path: '模型路径/名称',
+        ph_model_path: '输入模型路径或名称',
+        label_dataset_select: '数据集选择',
+        hint_multi_select: '按住Ctrl键可多选',
+        label_subtasks: '子任务（可选）',
+        ph_subtasks: '例如: 2-1,2-2',
+        hint_subtasks: '用逗号分隔多个子任务',
+        section_run_config_title: '运行配置',
+        label_task_type: '任务类型',
+        opt_task_all: '完整流程',
+        opt_task_infer: '仅推理',
+        opt_task_eval: '仅评估',
+        label_accelerator: '加速器',
+        opt_acc_none: '无',
+        label_num_workers: '并行工作进程',
+        label_tensor_parallel: '张量并行度',
+        label_batch_size: '批次大小',
+        section_generation_params_title: '生成参数',
+        label_temperature: '温度',
+        label_top_p: 'Top-p',
+        label_max_tokens: '最大Token数',
+        label_repetition_penalty: '重复惩罚',
+        section_json_eval_title: 'JSON 离线评测 (可选)',
+        switch_json_eval: '启用 JSON 预测文件直接评测（跳过推理）',
+        label_json_paths: 'JSON 文件路径（多数据集用 dataset=path，每行一个）',
+        ph_json_paths: 'CaseGen=/path/to/casegen_preds.json',
+        label_json_model_label: '评测模型标签',
+        ph_json_model_label: 'json_eval',
+        label_override_task_type: '覆盖任务类型',
+        override_eval_value: '自动设为 eval',
+        hint_json_models: '若未指定 models，将自动注入占位模型 json::label',
+        section_judge_title: 'LLM 评审 (Judge) 配置 (可选)',
+        switch_judge_enable: '启用 LLM 作为评审',
+        label_judge_model_spec: 'Judge 模型 Spec',
+        ph_judge_model_spec: 'hf:Qwen/Qwen2.5-7B',
+        label_judge_batch: 'Batch',
+        label_judge_tp: '并行度',
+        label_judge_temperature: '温度',
+        label_judge_top_p: 'Top-p',
+        label_judge_max_tokens: 'MaxTokens',
+        label_judge_rep_penalty: '重复惩罚',
+        label_judge_accelerator: 'Judge 加速器',
+        opt_judge_none: '无',
+        label_judge_api_mode: 'API 模式 (可选)',
+        ph_judge_api_url: 'https://api.example.com/v1/chat',
+        ph_judge_api_key: 'judge-api-key',
+        hint_judge_decoupled: 'Judge 模型与主模型解耦，仅在评测阶段调用。',
+    modal_task_detail: '任务详情',
+    modal_results: '评测结果',
+        loading: '加载中...',
+        no_tasks: '暂无任务',
+        no_eval_tasks: '暂无评测任务',
+        no_gpu: '未检测到GPU',
+        discovered_models: '发现的模型:',
+        no_valid_models: '未找到有效模型',
+        status_pending: '等待中',
+        status_running: '运行中',
+        status_completed: '已完成',
+        status_failed: '失败',
+        metric_gpu_available: '可用GPU',
+        metric_datasets: '数据集',
+        metric_accelerators: '加速器',
+        metric_task_types: '任务类型',
+        err_init: '加载初始数据失败: ',
+        err_load_datasets: '加载数据集失败',
+        err_load_system: '加载系统信息失败',
+        err_load_tasks: '加载任务列表失败',
+        err_input_model_path: '请输入模型路径',
+        err_model_discovery_failed: '模型发现失败',
+        err_task_submit_failed: '任务提交失败',
+        err_get_task_detail: '获取任务详情失败',
+        err_get_results: '获取结果失败',
+        submit_success_prefix: '任务提交成功! 任务ID: ',
+        validate_need_model: '请指定至少一个模型',
+        validate_need_dataset: '请选择至少一个数据集',
+        validate_need_api: 'API模型需要提供API URL和API Key',
+        validate_need_json_paths: 'JSON 评测模式需要提供 json_paths',
+        validate_json_task_eval: 'JSON 评测模式下任务类型必须为 eval',
+        detail_basic: '基本信息',
+        detail_task_id: '任务ID',
+        detail_status: '状态',
+        detail_created_at: '创建时间',
+        detail_started_at: '开始时间',
+        detail_completed_at: '完成时间',
+        detail_progress: '进度',
+        detail_config: '配置参数',
+        detail_error: '错误信息',
+        results_primary: '主指标',
+        results_judge: 'LLM Judge 指标',
+        results_classic: '经典指标 (BLEU/Rouge/BERTScore)',
+        results_other: '其它',
+        na: 'N/A',
+    }
+};

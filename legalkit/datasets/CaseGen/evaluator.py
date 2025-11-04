@@ -1,12 +1,34 @@
 from typing import List, Dict, Tuple
 from legalkit.datasets.base import BaseEvaluator
 from legalkit.datasets.utils import clean_prediction
+from legalkit.storage import StorageManager
 import numpy as np
 import jieba
 import re
 import string
 from collections import OrderedDict
 from rouge import Rouge
+try:
+    from tqdm.auto import tqdm
+except Exception:  # noqa
+    class _TqdmFallback:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self, n=1):
+            pass
+
+        def close(self):
+            pass
+
+    def tqdm(*args, **kwargs):  # type: ignore
+        return _TqdmFallback()
 # Optional external metrics libs
 try:
     from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
@@ -98,52 +120,56 @@ def compute_rouge_l(data_dict):
         )(Rouge())
     }
 
-# --------------------- task id mapping (refactored) ---------------------
-# New canonical CaseGen subtasks: defense / fact / reasoning / judgement
-# We use rouge-l as the default lexical similarity metric for all four long-form tasks.
-# If later a task needs a different base metric (e.g. classification accuracy), extend here.
-
-NEW_CASEGEN_FUNCT = {
-    'defense': compute_rouge_l,
-    'fact': compute_rouge_l,
-    'reasoning': compute_rouge_l,
-    'judgement': compute_rouge_l,
-}
-
-# Legacy numeric task ids (multiple small granular tasks) mapped heuristically to new categories.
-# This preserves backward compatibility if upstream dataset still emits old ids during transition.
-# Adjust mapping as needed when the dataset generation layer is migrated.
-LEGACY_TO_NEW = {
-    # group 1.x,2.x -> defense (e.g., various preliminary defenses)
-    '1_1': 'defense','1_2': 'defense','1_3': 'defense',
-    '2_1': 'defense','2_2': 'defense','2_3': 'defense','2_4': 'defense','2_5': 'defense',
-    # group 3.x reasoning analysis style
-    '3_1': 'reasoning','3_2': 'reasoning','3_3': 'reasoning','3_4': 'reasoning','3_5': 'reasoning','3_6': 'reasoning',
-    # group 4.x factual extraction style
-    '4_1': 'fact','4_2': 'fact',
-    # group 5.x long-form judgement elements
-    '5_1': 'judgement','5_2': 'judgement','5_3': 'judgement','5_4': 'judgement',
-    # group 6.x (if existed) mapping: treat as reasoning or fact — choose reasoning by default; adjust if needed
-    '6_1': 'reasoning','6_2': 'reasoning','6_3': 'reasoning'
-}
-
+# --------------------- task id mapping (simplified) ---------------------
 def resolve_task_category(task_id: str) -> str:
-    """Return the canonical four-category task label for CaseGen.
-    1. If already a new category, return directly.
-    2. Else map via legacy dict.
-    3. If still unknown, default to 'reasoning' (neutral choice) to avoid hard failure.
+    """Return the canonical CaseGen category when applicable.
+    This evaluator now relies solely on LLM-as-judge. We keep a minimal helper
+    to pass through known categories and default to 'reasoning' otherwise.
     """
-    if task_id in NEW_CASEGEN_FUNCT:
-        return task_id
-    if task_id in LEGACY_TO_NEW:
-        return LEGACY_TO_NEW[task_id]
-    return 'reasoning'
+    categories = {'defense', 'fact', 'reasoning', 'judgement'}
+    return task_id if task_id in categories else 'reasoning'
 
 
 
 class Evaluator(BaseEvaluator):
+    def __init__(self):
+        super().__init__()
+        self.dataset = None
+        self._run_root = None
+        self._model_id = None
+        self._debug = False
+
+    def configure_judge(
+        self,
+        judge_runner,
+        dataset: str = None,
+        run_root: str = None,
+        model_id: str = None,
+        debug: bool = False,
+        **kwargs
+    ):
+        super().configure_judge(judge_runner, **kwargs)
+        self.dataset = dataset
+        self._run_root = run_root
+        self._model_id = model_id
+        self._debug = bool(debug)
+
     def supports_llm_judge(self) -> bool:
         return True
+
+    def _record_judge_entry(self, subtask: str, entry: Dict):
+        if not self._run_root or not self._model_id or not entry:
+            return
+        try:
+            StorageManager.append_judge_result(
+                self._run_root,
+                self._model_id,
+                subtask,
+                entry
+            )
+        except Exception as exc:
+            if self._debug:
+                print(f"[Evaluator] failed to append judge entry for {subtask}: {exc}")
 
     _TEMPLATE_CACHE = {}
     _TEMPLATE_FILENAMES = {
@@ -176,9 +202,17 @@ class Evaluator(BaseEvaluator):
         )
     }
 
+    _BLEU_WEIGHTS = [
+        ('1_gram', (1, 0, 0, 0)),
+        ('2_gram', (0, 1, 0, 0)),
+        ('3_gram', (0, 0, 1, 0)),
+        ('4_gram', (0, 0, 0, 1))
+    ]
+    _BERT_MODEL = "bert-base-chinese"
+
     def _template_dir(self) -> str:
         # data directory: legalkit/data/casegen_templates
-        return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'CaseGen','templates'))
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'CaseGen','templates'))
 
     def _load_template(self, category: str) -> str:
         if category in self._TEMPLATE_CACHE:
@@ -190,7 +224,7 @@ class Evaluator(BaseEvaluator):
         if path and os.path.exists(path):
             try:
                 with open(path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+                    content = f.read() 
             except Exception:
                 content = None
         if not content:
@@ -233,9 +267,123 @@ class Evaluator(BaseEvaluator):
             return '', False
         return prompt, True
 
+    def _reference_text_for_category(self, category: str, record: Dict) -> str:
+        if category == 'defense':
+            val = record.get('defense') or record.get('defence')
+        elif category == 'fact':
+            val = record.get('fact')
+        elif category == 'reasoning':
+            val = record.get('reasoning')
+        elif category == 'judgement':
+            val = record.get('judgement') or record.get('judgment')
+        else:
+            val = None
+        if val:
+            return val
+        return ''
+
+    def _compute_text_metrics(self, reference: str, generated: str) -> Dict[str, Dict[str, float]]:
+        metrics: Dict[str, Dict[str, float]] = {
+            'bleu': None,
+            'rouge': None,
+            'bertscore': None
+        }
+        if not reference or not generated:
+            return metrics
+
+        reference = str(reference).strip()
+        generated = str(generated).strip()
+        if not reference or not generated:
+            return metrics
+
+        try:
+            ref_tokens = list(jieba.cut(reference))
+            gen_tokens = list(jieba.cut(generated))
+        except Exception:
+            ref_tokens = reference.split()
+            gen_tokens = generated.split()
+
+        if sentence_bleu is not None:
+            smooth_fn = None
+            if SmoothingFunction is not None:
+                try:
+                    smooth_fn = SmoothingFunction().method4
+                except Exception:
+                    smooth_fn = None
+            bleu_scores: Dict[str, float] = {}
+            for label, weights in self._BLEU_WEIGHTS:
+                try:
+                    kwargs = {'weights': weights}
+                    if smooth_fn is not None:
+                        score = sentence_bleu([ref_tokens], gen_tokens, smoothing_function=smooth_fn, **kwargs)
+                    else:
+                        score = sentence_bleu([ref_tokens], gen_tokens, **kwargs)
+                except Exception:
+                    score = None
+                bleu_scores[label] = score
+            metrics['bleu'] = bleu_scores
+
+        if _rouge_scorer_mod is not None:
+            try:
+                if not hasattr(self, '_rouge_scorer_instance'):
+                    self._rouge_scorer_instance = _rouge_scorer_mod.RougeScorer(['rougeL'], use_stemmer=False)
+                rouge_scores = self._rouge_scorer_instance.score(reference, generated)['rougeL']
+                metrics['rouge'] = {
+                    'precision': rouge_scores.precision,
+                    'recall': rouge_scores.recall,
+                    'f1': rouge_scores.fmeasure
+                }
+            except Exception:
+                metrics['rouge'] = None
+
+        if bert_score_func is not None:
+            try:
+                P, R, F1 = bert_score_func([generated], [reference], lang="zh", verbose=False, model_type=self._BERT_MODEL)
+                metrics['bertscore'] = {
+                    'precision': float(P.mean().item()),
+                    'recall': float(R.mean().item()),
+                    'f1': float(F1.mean().item())
+                }
+            except Exception:
+                metrics['bertscore'] = None
+
+        return metrics
+
+    def _append_quality_metrics(self, aggregator: Dict[str, Dict[str, List[float]]], metrics: Dict[str, Dict[str, float]]) -> None:
+        if not metrics:
+            return
+        bleu_bucket = aggregator.get('bleu')
+        if bleu_bucket is not None and metrics.get('bleu'):
+            for label, val in metrics['bleu'].items():
+                if val is not None and label in bleu_bucket:
+                    try:
+                        bleu_bucket[label].append(float(val))
+                    except Exception:
+                        continue
+        rouge_bucket = aggregator.get('rouge')
+        if rouge_bucket is not None and metrics.get('rouge'):
+            for label in ('precision', 'recall', 'f1'):
+                val = metrics['rouge'].get(label) if metrics['rouge'] else None
+                if val is not None and label in rouge_bucket:
+                    try:
+                        rouge_bucket[label].append(float(val))
+                    except Exception:
+                        continue
+        bert_bucket = aggregator.get('bertscore')
+        if bert_bucket is not None and metrics.get('bertscore'):
+            for label in ('precision', 'recall', 'f1'):
+                val = metrics['bertscore'].get(label) if metrics['bertscore'] else None
+                if val is not None and label in bert_bucket:
+                    try:
+                        bert_bucket[label].append(float(val))
+                    except Exception:
+                        continue
+
     def _collect_casegen_judge_batches(self, records: List[Dict], predictions: Dict[int, str], categories: List[str]):
         cat_prompts = {c: [] for c in categories}
         cat_ids = {c: [] for c in categories}
+        cat_refs = {c: [] for c in categories}
+        cat_pred_texts = {c: [] for c in categories}
         for rec in records:
             pred = clean_prediction(predictions.get(rec['id'], ''))
             for cat in categories:
@@ -243,7 +391,10 @@ class Evaluator(BaseEvaluator):
                 if ok and prompt.strip():
                     cat_prompts[cat].append(prompt)
                     cat_ids[cat].append(rec['id'])
-        return cat_prompts, cat_ids
+                    reference_text = self._reference_text_for_category(cat, rec)
+                    cat_refs[cat].append(reference_text)
+                    cat_pred_texts[cat].append(self._sanitize_generation(pred))
+        return cat_prompts, cat_ids, cat_refs, cat_pred_texts
 
     def evaluate(
         self,
@@ -252,45 +403,22 @@ class Evaluator(BaseEvaluator):
         predictions: Dict[int, str],
         origin_prompts: List[str] = None
     ) -> Dict[str, float]:
+        metrics: Dict[str, float] = {}
         cat = resolve_task_category(task_id)
-        scorer = NEW_CASEGEN_FUNCT.get(cat)
-        if not scorer:
-            return {'error': f"Unsupported task '{task_id}' (resolved category {cat})"}
-
-        data_dict = []
-        for i, rec in enumerate(records):
-            orig = origin_prompts[i] if origin_prompts else f"{rec['instruction']}\n{rec['question']}"
-            data_dict.append({
-                'origin_prompt': orig,
-                'prediction': clean_prediction(predictions.get(rec['id'], '')),
-                'refr': rec['answer']
-            })
-
-        score_result = scorer(data_dict)
-        # For rouge-l compute function we stored under 'score' a lambda returning mean rouge f.
-        # Keep same pattern but ensure numeric value extraction.
-        metrics = {}
-        for k, v in score_result.items():
-            if callable(v):
-                try:
-                    val = v(None, None)  # lambda ignores params due to closure
-                except Exception:
-                    val = 0.0
-            else:
-                val = v
-            if 0.0 <= val <= 1.0:
-                val = val * 100
-            metrics[k] = val
-
-        # Integrate classic text generation metrics for CaseGen long-form sections.
-        classic = self._maybe_compute_classic_metrics(task_id, records, predictions)
-        if classic:
-            metrics.update(classic)
-
+        # If an LLM judge is available, run the full judge+quality pipeline.
         if self.has_judge():
-            judge_metrics = self.evaluate_with_judge(cat, records, predictions)
+            judge_metrics = self.evaluate_with_judge(cat, records, predictions, subtask_id=task_id)
             if judge_metrics:
                 metrics.update(judge_metrics)
+                # Provide a primary 'score' equal to judge_score for downstream consumers
+                if 'judge_score' in judge_metrics:
+                    metrics['score'] = judge_metrics['judge_score']
+            return metrics
+
+        # No LLM judge configured: compute traditional text-quality metrics only
+        quality_only = self.compute_quality_metrics_only(cat, records, predictions, subtask_id=task_id)
+        if quality_only:
+            metrics.update(quality_only)
 
         return metrics
 
@@ -298,11 +426,12 @@ class Evaluator(BaseEvaluator):
         self,
         task_id: str,
         records: List[Dict],
-        predictions: Dict[int, str]
+        predictions: Dict[int, str],
+        subtask_id: str = None
     ) -> Dict[str, float]:
         if not self.judge_runner:
             return {}
-
+        
         # Category definitions and desired metric keys (Chinese kept to align with external script semantics)
         category_metric_keys = {
             'defense': ['事实准确性', '法律关系准确性', '逻辑性', '完备性', '综合得分'],
@@ -326,14 +455,33 @@ class Evaluator(BaseEvaluator):
             '论理性': '伦理性'
         }
 
-        categories = list(category_metric_keys.keys())
-        cat_prompts, cat_ids = self._collect_casegen_judge_batches(records, predictions, categories)
+        categories = [task_id] if task_id in category_metric_keys else []
+        if not categories:
+            return {}
+        cat_prompts, cat_ids, cat_refs, cat_pred_texts = self._collect_casegen_judge_batches(records, predictions, categories)
+
+        quality_acc: Dict[str, Dict[str, Dict[str, List[float]]]] = {}
+        precomputed_quality: Dict[str, List[Dict[str, Dict[str, float]]]] = {}
+        for cat in categories:
+            quality_acc[cat] = {
+                'bleu': {label: [] for label, _ in self._BLEU_WEIGHTS} if sentence_bleu is not None else None,
+                'rouge': {'precision': [], 'recall': [], 'f1': []} if _rouge_scorer_mod is not None else None,
+                'bertscore': {'precision': [], 'recall': [], 'f1': []} if bert_score_func is not None else None
+            }
+            precomputed_quality[cat] = []
+            refs = cat_refs.get(cat, [])
+            preds = cat_pred_texts.get(cat, [])
+            for ref, pred_text in zip(refs, preds):
+                qm = self._compute_text_metrics(ref, pred_text)
+                precomputed_quality[cat].append(qm)
+                self._append_quality_metrics(quality_acc[cat], qm)
 
         all_metrics: Dict[str, float] = {}
-        overall_scores = []  # collect per-category 综合得分 (normalized 0-1)
+        overall_scores = [] 
         total_invalid = 0
         total_votes = 0
         sample_rationales = []
+        subtask = subtask_id or task_id
 
         def _clean_response(txt: str) -> str:
             if not txt:
@@ -382,45 +530,134 @@ class Evaluator(BaseEvaluator):
             ids = cat_ids[cat]
             if not prompts:
                 continue
-            responses = self.judge_runner.generate(prompts)
+            processed_indices = set()
             invalid = 0
-            rationales = []
-            for rid, resp in zip(ids, responses):
+            category_entries: List[Dict] = []
+
+            def _handle_entry(idx_in_cat: int, resp: str) -> None:
+                nonlocal invalid
+                rid = ids[idx_in_cat]
+                prompt_text = prompts[idx_in_cat]
                 raw = _clean_response(resp)
                 json_frag = _extract_json_fragment(raw)
                 parsed_obj = None
+                parse_error = None
                 if json_frag:
                     try:
                         parsed_obj = json.loads(json_frag)
-                    except Exception:
+                    except Exception as exc:
                         parsed_obj = None
-                # build canonical metrics dict
+                        parse_error = str(exc)
+                else:
+                    parse_error = 'missing_json'
+
                 metrics_map = {k: -1 for k in category_metric_keys[cat]}
                 rationale_text = ''
                 if parsed_obj and isinstance(parsed_obj, dict):
-                    # rename synonyms
                     canon_obj = {}
                     for k, v in parsed_obj.items():
                         canon_k = synonym_map.get(k, k)
                         canon_obj[canon_k] = v
-                    # prefer explicit 综合得分 else fallback to 'score'
                     if '综合得分' not in canon_obj and 'score' in canon_obj:
                         canon_obj['综合得分'] = canon_obj['score']
-                    # explanation fields
                     rationale_text = canon_obj.get('explanation') or canon_obj.get('reason') or ''
-                    for mk in metrics_map.keys():
+                    for mk in list(metrics_map.keys()):
                         if mk in canon_obj:
                             val = _to_float(canon_obj[mk])
                             if val is not None:
                                 metrics_map[mk] = val
                 else:
                     invalid += 1
-                # accumulate
+                    if parse_error is None:
+                        parse_error = 'parse_failed'
+
                 for mk, val in metrics_map.items():
                     if val != -1:
                         cat_metric_acc[cat][mk].append(val)
                 if rationale_text and len(sample_rationales) < 5:
                     sample_rationales.append({'id': rid, 'type': cat, 'rationale': rationale_text})
+
+                entry_metrics = {mk: (val if val != -1 else None) for mk, val in metrics_map.items()}
+                entry = {
+                    'id': rid,
+                    'category': cat,
+                    'prompt': prompt_text,
+                    'raw_response': raw,
+                    'json_fragment': json_frag,
+                    'parsed': parsed_obj if isinstance(parsed_obj, dict) else None,
+                    'metrics': entry_metrics,
+                    'rationale': rationale_text or None,
+                    'parse_error': parse_error,
+                }
+                q_cache = precomputed_quality.get(cat) or []
+                if idx_in_cat < len(q_cache):
+                    entry['quality_metrics'] = q_cache[idx_in_cat]
+                else:
+                    entry['quality_metrics'] = {
+                        'bleu': None,
+                        'rouge': None,
+                        'bertscore': None
+                    }
+                category_entries.append(entry)
+                processed_indices.add(idx_in_cat)
+                try:
+                    if self._run_root and self._model_id:
+                        StorageManager.append_judge_result(self._run_root, self._model_id, subtask, entry)
+                except Exception as exc:
+                    if self._debug:
+                        print(f"[Evaluator] failed to append judge result for id={rid}: {exc}")
+
+            def _batch_callback(start_idx: int, batch_outputs: List[str]) -> None:
+                for offset, resp in enumerate(batch_outputs):
+                    idx_in_cat = start_idx + offset
+                    if idx_in_cat < len(ids):
+                        _handle_entry(idx_in_cat, resp)
+
+            # run judge in batches and update progress bar, streaming results via callback
+            with tqdm(total=len(prompts), desc=f"Judge {cat}", unit="sample", leave=False) as pbar:
+                self.judge_runner.generate(
+                    prompts,
+                    progress=pbar.update,
+                    batch_callback=_batch_callback
+                )
+
+            # handle missing responses (judge returned fewer outputs than prompts)
+            missing_count = max(0, len(ids) - len(processed_indices))
+            if missing_count:
+                for idx_in_cat in range(len(ids)):
+                    if idx_in_cat in processed_indices:
+                        continue
+                    rid = ids[idx_in_cat]
+                    prompt_text = prompts[idx_in_cat]
+                    entry = {
+                        'id': rid,
+                        'category': cat,
+                        'prompt': prompt_text,
+                        'raw_response': '',
+                        'json_fragment': None,
+                        'parsed': None,
+                        'metrics': {mk: None for mk in category_metric_keys[cat]},
+                        'rationale': None,
+                        'parse_error': 'missing_response',
+                    }
+                    q_cache = precomputed_quality.get(cat) or []
+                    if idx_in_cat < len(q_cache):
+                        entry['quality_metrics'] = q_cache[idx_in_cat]
+                    else:
+                        entry['quality_metrics'] = {
+                            'bleu': None,
+                            'rouge': None,
+                            'bertscore': None
+                        }
+                    category_entries.append(entry)
+                    try:
+                        if self._run_root and self._model_id:
+                            StorageManager.append_judge_result(self._run_root, self._model_id, subtask, entry)
+                    except Exception as exc:
+                        if self._debug:
+                            print(f"[Evaluator] failed to append missing_response entry for id={rid}: {exc}")
+                invalid += missing_count
+
             # aggregate category metrics
             for mk, vals in cat_metric_acc[cat].items():
                 if vals:
@@ -440,8 +677,25 @@ class Evaluator(BaseEvaluator):
             # votes/invalid
             all_metrics[f'judge_{cat}_votes'] = len(cat_metric_acc[cat].get('综合得分') or [])
             # invalid includes parse failures + generation shortfall
-            all_metrics[f'judge_{cat}_invalid'] = invalid + max(0, len(prompts) - len(responses))
+            all_metrics[f'judge_{cat}_invalid'] = invalid
             total_invalid += all_metrics[f'judge_{cat}_invalid']
+
+            qa = quality_acc.get(cat, {})
+            bleu_bucket = qa.get('bleu') if qa else None
+            if isinstance(bleu_bucket, dict):
+                for label, vals in bleu_bucket.items():
+                    key = f'quality_{cat}_bleu_{label}'
+                    all_metrics[key] = (sum(vals) / len(vals)) if vals else 0.0
+            rouge_bucket = qa.get('rouge') if qa else None
+            if isinstance(rouge_bucket, dict):
+                for label, vals in rouge_bucket.items():
+                    key = f'quality_{cat}_rouge_{label}'
+                    all_metrics[key] = (sum(vals) / len(vals)) if vals else 0.0
+            bert_bucket = qa.get('bertscore') if qa else None
+            if isinstance(bert_bucket, dict):
+                for label, vals in bert_bucket.items():
+                    key = f'quality_{cat}_bertscore_{label}'
+                    all_metrics[key] = (sum(vals) / len(vals)) if vals else 0.0
 
         # overall aggregated judge_score (average of category 综合得分)
         if overall_scores:
@@ -454,112 +708,65 @@ class Evaluator(BaseEvaluator):
             all_metrics['judge_samples'] = json.dumps(sample_rationales, ensure_ascii=False)
         return all_metrics
 
-    # ---------------- Classic Metrics (BLEU / Rouge-L / BERTScore) ------------------
-    def _maybe_compute_classic_metrics(
+    def compute_quality_metrics_only(
         self,
         task_id: str,
         records: List[Dict],
-        predictions: Dict[int, str]
+        predictions: Dict[int, str],
+        subtask_id: str = None
     ) -> Dict[str, float]:
-        """Compute BLEU(1-4), Rouge-L (P/R/F), BERTScore (P/R/F1) for applicable CaseGen categories.
+        """Compute BLEU / ROUGE-L / BERTScore aggregates for the given task/category.
 
-        We treat task_id groups (5_x for narrative, maybe others) but since CaseGen evaluator
-        receives mixed task_ids, we fallback to record-level category inference via keys.
-        For simplicity, we apply classic metrics only when records contain long-form
-        fields among {'defense','fact','reasoning','judgement'}.
+        This runs the same text-quality computations used when the LLM judge is present,
+        but does not call or require the LLM judge. Returns a flat metrics dict.
         """
-        # Quick exit if libs missing
-        if not any([sentence_bleu, _rouge_scorer_mod, bert_score_func]):
+        category_metric_keys = {
+            'defense': ['事实准确性', '法律关系准确性', '逻辑性', '完备性', '综合得分'],
+            'fact': ['事实准确性', '相关性', '逻辑性', '综合得分'],
+            'reasoning': ['争议焦点准确性', '法律关系准确性', '逻辑性', '伦理性', '综合得分'],
+            'judgement': ['判决结果准确性', '引用法条完整性和准确性', '综合得分']
+        }
+        categories = [task_id] if task_id in category_metric_keys else []
+        if not categories:
             return {}
 
-        # Determine which field is relevant per record by heuristic: prefer keys present
-        candidate_fields = ['defense', 'fact', 'reasoning', 'judgement']
-        # Collect pairs per category
-        cat_pairs: Dict[str, List[Tuple[str, str]]] = {c: [] for c in candidate_fields}
-        for rec in records:
-            rid = rec['id']
-            pred_text = clean_prediction(predictions.get(rid, ''))
-            # Choose category if ref exists and prediction non-empty
-            for c in candidate_fields:
-                if c in rec and isinstance(rec[c], str) and rec[c].strip():
-                    # treat that as reference candidate, add even if pred empty (will handle)
-                    cat_pairs[c].append((rec[c], pred_text))
-        # Remove empty categories
-        cat_pairs = {k: v for k, v in cat_pairs.items() if v}
-        if not cat_pairs:
-            return {}
+        cat_prompts, cat_ids, cat_refs, cat_pred_texts = self._collect_casegen_judge_batches(records, predictions, categories)
 
-        smoothing = SmoothingFunction().method4 if SmoothingFunction else None
-        rouge_scorer = _rouge_scorer_mod.RougeScorer(['rougeL'], use_stemmer=False) if _rouge_scorer_mod else None
-        results: Dict[str, float] = {}
+        quality_acc: Dict[str, Dict[str, Dict[str, List[float]]]] = {}
+        for cat in categories:
+            quality_acc[cat] = {
+                'bleu': {label: [] for label, _ in self._BLEU_WEIGHTS} if sentence_bleu is not None else None,
+                'rouge': {'precision': [], 'recall': [], 'f1': []} if _rouge_scorer_mod is not None else None,
+                'bertscore': {'precision': [], 'recall': [], 'f1': []} if bert_score_func is not None else None
+            }
+            refs = cat_refs.get(cat, [])
+            preds = cat_pred_texts.get(cat, [])
+            for ref, pred_text in zip(refs, preds):
+                qm = self._compute_text_metrics(ref, pred_text)
+                self._append_quality_metrics(quality_acc[cat], qm)
 
-        for cat, pairs in cat_pairs.items():
-            refs = [r for r, _ in pairs]
-            hyps = [h for _, h in pairs]
-            # Tokenize using jieba for BLEU
-            if sentence_bleu and smoothing:
-                bleu_ng = {1: [], 2: [], 3: [], 4: []}
-                for ref, hyp in pairs:
-                    if not ref or not hyp:
-                        continue
-                    ref_tokens = list(jieba.cut(ref))
-                    hyp_tokens = list(jieba.cut(hyp))
-                    weights_list = {
-                        1: (1, 0, 0, 0),
-                        2: (0.5, 0.5, 0, 0),  # standard cumulative variant alternative
-                        3: (1/3, 1/3, 1/3, 0),
-                        4: (0.25, 0.25, 0.25, 0.25)
-                    }
-                    for n in range(1,5):
-                        try:
-                            score = sentence_bleu([ref_tokens], hyp_tokens, weights=weights_list[n], smoothing_function=smoothing)
-                            bleu_ng[n].append(score)
-                        except Exception:
-                            continue
-                for n in range(1,5):
-                    vals = bleu_ng[n]
-                    if vals:
-                        results[f'classic_{cat}_bleu{n}'] = (sum(vals)/len(vals))*100
-                    else:
-                        results[f'classic_{cat}_bleu{n}'] = 0.0
+        all_metrics: Dict[str, float] = {}
+        for cat in categories:
+            qa = quality_acc.get(cat, {})
+            bleu_bucket = qa.get('bleu') if qa else None
+            if isinstance(bleu_bucket, dict):
+                for label, vals in bleu_bucket.items():
+                    key = f'quality_{cat}_bleu_{label}'
+                    all_metrics[key] = (sum(vals) / len(vals)) if vals else 0.0
+            rouge_bucket = qa.get('rouge') if qa else None
+            if isinstance(rouge_bucket, dict):
+                for label, vals in rouge_bucket.items():
+                    key = f'quality_{cat}_rouge_{label}'
+                    all_metrics[key] = (sum(vals) / len(vals)) if vals else 0.0
+            bert_bucket = qa.get('bertscore') if qa else None
+            if isinstance(bert_bucket, dict):
+                for label, vals in bert_bucket.items():
+                    key = f'quality_{cat}_bertscore_{label}'
+                    all_metrics[key] = (sum(vals) / len(vals)) if vals else 0.0
 
-            # Rouge-L (only F previously; we export P/R/F)
-            if rouge_scorer:
-                rouge_p = []
-                rouge_r = []
-                rouge_f = []
-                for ref, hyp in pairs:
-                    if not ref or not hyp:
-                        continue
-                    try:
-                        sc = rouge_scorer.score(ref, hyp)['rougeL']
-                        rouge_p.append(sc.precision)
-                        rouge_r.append(sc.recall)
-                        rouge_f.append(sc.fmeasure)
-                    except Exception:
-                        continue
-                if rouge_p:
-                    results[f'classic_{cat}_rougeL_p'] = (sum(rouge_p)/len(rouge_p))*100
-                    results[f'classic_{cat}_rougeL_r'] = (sum(rouge_r)/len(rouge_r))*100
-                    results[f'classic_{cat}_rougeL_f'] = (sum(rouge_f)/len(rouge_f))*100
-                else:
-                    results[f'classic_{cat}_rougeL_p'] = 0.0
-                    results[f'classic_{cat}_rougeL_r'] = 0.0
-                    results[f'classic_{cat}_rougeL_f'] = 0.0
+        return all_metrics
 
-            # BERTScore (expensive) - run once per category if library available
-            if bert_score_func and refs and hyps:
-                try:
-                    P, R, F1 = bert_score_func(hyps, refs, lang='zh', verbose=False, model_type='bert-base-chinese')
-                    results[f'classic_{cat}_bertscore_p'] = float(P.mean().item())*100
-                    results[f'classic_{cat}_bertscore_r'] = float(R.mean().item())*100
-                    results[f'classic_{cat}_bertscore_f1'] = float(F1.mean().item())*100
-                except Exception:
-                    results[f'classic_{cat}_bertscore_p'] = 0.0
-                    results[f'classic_{cat}_bertscore_r'] = 0.0
-                    results[f'classic_{cat}_bertscore_f1'] = 0.0
-
-        return results
+    # Classic metrics removed in judge-only mode.
 
     def _parse_judge_response(self, response: str):
         if not response:

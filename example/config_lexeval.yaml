@@ -1,7 +1,6 @@
 args:
   models: ["/path/to/your/model"]
   datasets: ["LexEval"]
-  few_shot: true
   accelerator: "lmdeploy"
   num_workers: 8
   tensor_parallel: 1

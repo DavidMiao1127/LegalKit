@@ -68,6 +68,46 @@ def merge_config_with_args(cfg_dict, args):
             merged[k] = v
     return merged
 
+def _format_metrics(metrics: dict) -> str:
+    """Return a compact human-readable string for a metrics dict.
+
+    Behaviors:
+    - If 'score' exists, show it as primary.
+    - Otherwise, list available scalar metrics sorted by key.
+    - For numeric values, format to 4 decimal places; for dict/list show a short repr.
+    """
+    if not metrics:
+        return '{}'
+    # Prefer primary 'score' field if present
+    if 'score' in metrics:
+        try:
+            val = float(metrics['score'])
+            return f"score={val:.4f}"
+        except Exception:
+            return f"score={metrics['score']}"
+
+    parts = []
+    for k in sorted(metrics.keys()):
+        v = metrics[k]
+        if v is None:
+            parts.append(f"{k}=None")
+        elif isinstance(v, (int, float)):
+            try:
+                parts.append(f"{k}={float(v):.4f}")
+            except Exception:
+                parts.append(f"{k}={v}")
+        elif isinstance(v, str):
+            short = v if len(v) < 60 else (v[:57] + '...')
+            parts.append(f"{k}='{short}'")
+        else:
+            # For lists/dicts and other complex objects show shortened json
+            try:
+                s = json.dumps(v, ensure_ascii=False)
+                short = s if len(s) < 120 else (s[:117] + '...')
+                parts.append(f"{k}={short}")
+            except Exception:
+                parts.append(f"{k}={str(v)}")
+    return ', '.join(parts)
 
 def parse_json_path_specs(specs: List[str], datasets: List[str]) -> Dict[str, str]:
     mapping: Dict[str, str] = {}
@@ -240,6 +280,7 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
     json_model_label = merged_args.get("json_model_label") or "json_eval"
     requires_inference = (task_phase in ("infer", "all")) and not json_eval_mode
     judge_cfg_dict = merged_args.get("judge_config")
+    judge_debug = bool(merged_args.get("judge_debug", False))
     # Set generic few-shot environment flag per worker
     if merged_args.get("few_shot"):
         os.environ["FEW_SHOT"] = "1"
@@ -327,7 +368,13 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
                     results = {} if worker_id == 0 else None
                     evaluator = ds_mod.Evaluator() if worker_id == 0 else None
                     if evaluator and judge_runner and hasattr(evaluator, "configure_judge"):
-                        evaluator.configure_judge(judge_runner, dataset=ds)
+                        evaluator.configure_judge(
+                            judge_runner,
+                            dataset=ds,
+                            run_root=run_root,
+                            model_id=model_id,
+                            debug=judge_debug
+                        )
                     for task in tasks:
                         if requires_inference:
                             storage = StorageManager(run_root, model_id, task.id, worker_id)
@@ -384,7 +431,7 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
                                 preds = StorageManager.load_predictions(run_root, model_id, task.id)
                             score = evaluator.evaluate(task.id, task.records, preds)
                             results[task.id] = score
-                            print(f"Result {task.id}: {score['score']:.4f}")
+                            print(f"Result {task.id}: {_format_metrics(score)}")
 
                     barrier.wait()
 
@@ -434,7 +481,13 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
                     if task_phase in ("eval",) and worker_id == 0:
                         evaluator = ds_mod.Evaluator()
                         if judge_runner and hasattr(evaluator, "configure_judge"):
-                            evaluator.configure_judge(judge_runner, dataset=ds)
+                            evaluator.configure_judge(
+                                judge_runner,
+                                dataset=ds,
+                                run_root=run_root,
+                                model_id=model_id,
+                                debug=judge_debug
+                            )
                         results = {}
                         for task in tqdm(tasks, desc="Eval", leave=False):
                             if json_eval_mode:

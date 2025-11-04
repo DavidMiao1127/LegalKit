@@ -120,3 +120,32 @@ class StorageManager:
                     if rid is not None:
                         preds[rid] = rec.get('prediction', '')
         return preds
+
+    @staticmethod
+    def append_judge_result(
+        run_root: str,
+        model: str,
+        subtask: str,
+        entry: dict
+    ) -> None:
+        """Append a single judge evaluation record to the designated judge log."""
+        judge_dir = os.path.join(run_root, model.replace("/", "_"), 'judge', subtask)
+        os.makedirs(judge_dir, exist_ok=True)
+
+        payload_path = os.path.join(judge_dir, 'judge_results.json')
+        print(f"Appending judge result to {payload_path}")
+        data = []
+        if os.path.exists(payload_path):
+            try:
+                with open(payload_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f) or []
+            except Exception:
+                data = []
+
+        if not isinstance(data, list):
+            data = []
+
+        data.append(entry)
+
+        with open(payload_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
