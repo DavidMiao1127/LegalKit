@@ -38,6 +38,10 @@ def parse_args():
     parser.add_argument("--max_tokens", type=int, help="Maximum number of tokens to generate")
     parser.add_argument("--sub_tasks", nargs='+', help="Sub-tasks to run")
     parser.add_argument("--batch_size", type=int, help="Batch size of generation")
+    parser.add_argument("--preproc_workers", type=int, help="Number of CPU workers for prompt preprocessing (e.g., LMDeploy)")
+    parser.add_argument("--gpu_utilization", type=float, help="Target fraction of GPU memory to reserve for context (0.0-1.0, LMDeploy only)")
+    parser.add_argument("--max_context_tokens", type=int, help="Override max context tokens (LMDeploy); reduces KV cache footprint")
+    parser.add_argument("--gpu_ids", type=str, help="Comma-separated GPU device ids to assign to LMDeploy workers")
     parser.add_argument("--repetition_penalty", type=float, help="Repetition penalty for generation")
     parser.add_argument("--api_url", type=str, help="URL of api generation")
     parser.add_argument("--api_key", type=str, help="URL key of api generation")
@@ -52,6 +56,10 @@ def parse_args():
     parser.add_argument("--judge_top_p", type=float, help="Top-p sampling for judge model")
     parser.add_argument("--judge_max_tokens", type=int, help="Maximum number of tokens to generate for judge model")
     parser.add_argument("--judge_repetition_penalty", type=float, help="Repetition penalty for judge model")
+    parser.add_argument("--judge_preproc_workers", type=int, help="Number of CPU workers for judge prompt preprocessing (e.g., LMDeploy)")
+    parser.add_argument("--judge_gpu_utilization", type=float, help="Target fraction of GPU memory for judge model context (0.0-1.0)")
+    parser.add_argument("--judge_max_context_tokens", type=int, help="Override judge max context tokens (LMDeploy)")
+    parser.add_argument("--judge_gpu_ids", type=str, help="Comma-separated GPU device ids for the judge accelerator (LMDeploy)")
     parser.add_argument("--judge_api_url", type=str, help="Override API URL for judge model")
     parser.add_argument("--judge_api_key", type=str, help="Override API key for judge model")
     parser.add_argument("--few_shot", action="store_true", help="Enable few-shot prompting")
@@ -264,6 +272,32 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
     models = merged_args["models"]
     datasets = merged_args["datasets"]
     accelerator = merged_args.get("accelerator")
+    # For LMDeploy, set per-worker GPU mask early so CUDA picks it up before engine init
+    if accelerator == 'lmdeploy':
+        try:
+            tp = int(merged_args.get('tensor_parallel', 1))
+        except Exception:
+            tp = 1
+        explicit_ids = merged_args.get('gpu_ids')
+        if explicit_ids:
+            if isinstance(explicit_ids, str):
+                parsed = [int(x.strip().split(":")[-1]) for x in explicit_ids.split(',') if x.strip()]
+            elif isinstance(explicit_ids, (list, tuple)):
+                parsed = [int(x) for x in explicit_ids]
+            else:
+                raise ValueError("gpu_ids must be str or list for LMDeploy")
+            base = worker_id * tp
+            tp_gpu_ids = parsed[base: base + tp]
+        else:
+            total = torch.cuda.device_count()
+            base = worker_id * tp
+            tp_gpu_ids = list(range(base, base + tp))
+            if any(g >= total or g < 0 for g in tp_gpu_ids):
+                raise ValueError(f"Invalid GPU ids {tp_gpu_ids} for total {total}")
+        os.environ['CUDA_VISIBLE_DEVICES'] = ",".join(map(str, tp_gpu_ids))
+        os.environ['LOCAL_RANK'] = '0'
+        os.environ.pop('WORLD_SIZE', None)
+        os.environ.pop('RANK', None)
     task_phase = merged_args.get("task", "all")
     temperature = merged_args.get("temperature", 1.0)
     top_p = merged_args.get("top_p", 1.0)
@@ -273,6 +307,28 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
     batch_size = merged_args.get("batch_size", 1)
     rep_penalty = merged_args.get("repetition_penalty", 1)
     gen_cfg = {"temperature": temperature, "top_p": top_p, "max_tokens": max_tokens, "rep_penalty": rep_penalty}
+    gen_cfg["batch_size"] = batch_size
+    if merged_args.get("preproc_workers") is not None:
+        try:
+            gen_cfg["preproc_workers"] = int(merged_args.get("preproc_workers"))
+        except Exception:
+            gen_cfg["preproc_workers"] = merged_args.get("preproc_workers")
+    if merged_args.get("gpu_utilization") is not None:
+        try:
+            gu = float(merged_args.get("gpu_utilization"))
+            if 0 < gu <= 1:
+                gen_cfg["gpu_utilization"] = gu
+        except Exception:
+            pass
+    if merged_args.get("max_context_tokens") is not None:
+        try:
+            mct = int(merged_args.get("max_context_tokens"))
+            if mct > 0:
+                gen_cfg["max_context_tokens"] = mct
+        except Exception:
+            pass
+    if merged_args.get("gpu_ids") is not None:
+        gen_cfg["gpu_ids"] = merged_args.get("gpu_ids")
     api_url = merged_args.get("api_url")
     api_key = merged_args.get("api_key")
     json_eval_mode = bool(merged_args.get("json_eval"))
@@ -281,7 +337,6 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
     requires_inference = (task_phase in ("infer", "all")) and not json_eval_mode
     judge_cfg_dict = merged_args.get("judge_config")
     judge_debug = bool(merged_args.get("judge_debug", False))
-    # Set generic few-shot environment flag per worker
     if merged_args.get("few_shot"):
         os.environ["FEW_SHOT"] = "1"
     else:
@@ -571,7 +626,28 @@ def main():
             "top_p": merged_args.get('judge_top_p', merged_args.get('top_p', 1.0)),
             "max_tokens": merged_args.get('judge_max_tokens', merged_args.get('max_tokens', 512)),
             "rep_penalty": merged_args.get('judge_repetition_penalty', merged_args.get('repetition_penalty', 1.0)),
+            # Ensure LMDeploy (or similar) can see batch/preproc hints via gen_cfg
+            "batch_size": int(merged_args.get('judge_batch_size', 4 if json_eval_mode else merged_args.get('batch_size', 1) or 1)),
+            "preproc_workers": merged_args.get('judge_preproc_workers', merged_args.get('preproc_workers')),
         }
+        if merged_args.get('judge_gpu_utilization') is not None:
+            try:
+                jgu = float(merged_args.get('judge_gpu_utilization'))
+                if 0 < jgu <= 1:
+                    judge_gen_cfg['gpu_utilization'] = jgu
+            except Exception:
+                pass
+        if merged_args.get('judge_max_context_tokens') is not None:
+            try:
+                jmct = int(merged_args.get('judge_max_context_tokens'))
+                if jmct > 0:
+                    judge_gen_cfg['max_context_tokens'] = jmct
+            except Exception:
+                pass
+        if merged_args.get('judge_gpu_ids') is not None:
+            judge_gen_cfg['gpu_ids'] = merged_args.get('judge_gpu_ids')
+        elif merged_args.get('gpu_ids') is not None:
+            judge_gen_cfg['gpu_ids'] = merged_args.get('gpu_ids')
         judge_config = {
             "model_spec": judge_spec,
             "accelerator": merged_args.get('judge_accelerator'),

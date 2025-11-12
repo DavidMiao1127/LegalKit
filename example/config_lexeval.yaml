@@ -6,7 +6,7 @@ args:
   tensor_parallel: 1
   temperature: 0.6
   top_p: 0.9
-  max_tokens: 16384
-  batch_size: 8
+  max_tokens: 8192
+  batch_size: 1
   repetition_penalty: 1.2
   resume: null
