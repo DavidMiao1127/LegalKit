@@ -63,6 +63,14 @@ def parse_args():
     parser.add_argument("--judge_api_url", type=str, help="Override API URL for judge model")
     parser.add_argument("--judge_api_key", type=str, help="Override API key for judge model")
     parser.add_argument("--few_shot", action="store_true", help="Enable few-shot prompting")
+    # Generic retrieval options (dataset modules may choose to implement them)
+    parser.add_argument("--retrieval_method", type=str, choices=["none", "bm25s", "pyserini", "qld", "dense-bge", "dense-gte", "dense-api"], help="Retrieval method to run before generation")
+    parser.add_argument("--retrieval_k", type=int, help="Top-k items to retrieve")
+    parser.add_argument("--retrieval_faiss_type", type=str, choices=["FlatIP", "HNSW", "IVF"], help="FAISS index type for dense retrieval")
+    parser.add_argument("--embed_model_name", type=str, help="Embedding model name for dense-api retrieval")
+    parser.add_argument("--embed_api_url", type=str, help="Embedding API base URL for dense-api retrieval")
+    parser.add_argument("--embed_api_key", type=str, help="Embedding API key for dense-api retrieval")
+    parser.add_argument("--embed_batch_size", type=int, help="Embedding batch size for dense retrieval")
     return parser.parse_args()
 
 def load_config(path):
@@ -344,7 +352,25 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
     judge_runner = None
     if worker_id == 0 and judge_cfg_dict:
         judge_runner = LLMJudgeRunner(JudgeConfig(**judge_cfg_dict), worker_id=worker_id)
-    
+    # Retrieval stage (dataset-specific), run once by worker 0 before model loop when doing inference
+    if worker_id == 0 and requires_inference:
+        # Provide run_root to dataset modules
+        merged_args['run_root'] = run_root
+        os.environ['LEGALKIT_RUN_ROOT'] = run_root
+        retrieval_method = str(merged_args.get('retrieval_method', 'none') or 'none').lower()
+        if retrieval_method and retrieval_method != 'none':
+            for ds in datasets:
+                try:
+                    ds_mod = import_module(f"legalkit.datasets.{ds}")
+                except Exception:
+                    continue
+                if hasattr(ds_mod, 'maybe_run_retrieval'):
+                    try:
+                        ds_mod.maybe_run_retrieval(merged_args)
+                    except Exception as e:
+                        print(f"[Retrieval] Dataset {ds} retrieval failed: {e}")
+    barrier.wait()
+
     for spec in models:
         if dist.is_initialized():
             dist.destroy_process_group()
@@ -406,6 +432,7 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
             for ds in datasets:
                 ds_mod = import_module(f"legalkit.datasets.{ds}")
                 tasks = ds_mod.load_tasks(sub_tasks=sub_tasks)
+                # Retrieval is handled once per run before generation (see pre-loop stage)
                 dataset_json_cache = None
                 if json_eval_mode:
                     json_path = json_inputs.get(ds)

@@ -189,7 +189,6 @@ class SGLANGAccelerator:
 				return results
 		except Exception as e:
 			print(f"[SGLANGAccelerator] Generation error: {e}")
-			# Return explicit error strings so caller can see failures
 			return [f"[SGLANG generate failed: {e}]"] * len(prompts)
 
 		# If we ever reach here, return empty strings to keep length

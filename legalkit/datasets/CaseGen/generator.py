@@ -1,14 +1,10 @@
 from typing import Dict, List, Tuple, Union
 
 class Generator:
-    """
-    Prompt builder and inference for verdict_pred.
-    """
     def __init__(self, model):
         self.model = model
 
     def generate(self, task_id: str, record_or_records: Union[Dict, List[Dict]]) -> Union[str, Tuple[List[str], List[str]]]:
-        # Batch mode: main.py (task='all') calls with a list and expects (prompts, preds)
         if isinstance(record_or_records, list):
             records: List[Dict] = record_or_records
             prompts: List[str] = []
@@ -19,7 +15,6 @@ class Generator:
             preds: List[str] = self.model.generate(prompts)
             return prompts, preds
 
-        # Single mode: main.py (task='infer') calls per-record and expects a string
         rec: Dict = record_or_records
         text = rec.get('prompt') or rec.get('input') or rec.get('question') or ''
         prompt = str(text)

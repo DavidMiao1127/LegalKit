@@ -149,3 +149,30 @@ class StorageManager:
 
         with open(payload_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+class RetrievalStorage:
+    """
+    Manages retrieval artifacts for a dataset within a run directory.
+    Layout:
+      run_root/
+        retrieval/
+          <dataset>/
+            retrieval_<stem>_<tag>.jsonl
+            law_index_<model>.faiss
+            retrieval_<stem>_<model>.npy
+    """
+    def __init__(self, run_root: str, dataset: str):
+        self.run_root = run_root
+        self.dataset = dataset
+        self.base_dir = os.path.join(run_root, 'retrieval', dataset)
+        os.makedirs(self.base_dir, exist_ok=True)
+
+    def result_path(self, stem: str, tag: str) -> str:
+        return os.path.join(self.base_dir, f"retrieval_{stem}_{tag}.jsonl")
+
+    def question_npy_path(self, stem: str, model_label: str) -> str:
+        return os.path.join(self.base_dir, f"retrieval_{stem}_{model_label}.npy")
+
+    def law_index_path(self, model_label: str) -> str:
+        return os.path.join(self.base_dir, f"law_index_{model_label}.faiss")

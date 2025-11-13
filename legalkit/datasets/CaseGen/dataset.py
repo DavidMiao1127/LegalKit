@@ -4,10 +4,6 @@ from typing import List, Dict
 from legalkit.datasets.base import BaseDataset, Task
 
 class CaseGenDataset(BaseDataset):
-    """
-    Loader for lawbench dataset.
-    Scans relative path: data/lawbench/zero_shot/*.json
-    """
     def __init__(self, sub_tasks: List[str] = None):
         # dataset root relative to this file
         pkg_dir = os.path.dirname(__file__)
