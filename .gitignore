@@ -8,3 +8,4 @@ __pycache__/
 run_output/
 *.sh
 /example/api
+/web/web_run_output/
