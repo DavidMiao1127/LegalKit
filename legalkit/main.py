@@ -63,7 +63,6 @@ def parse_args():
     parser.add_argument("--judge_api_url", type=str, help="Override API URL for judge model")
     parser.add_argument("--judge_api_key", type=str, help="Override API key for judge model")
     parser.add_argument("--few_shot", action="store_true", help="Enable few-shot prompting")
-    # Generic retrieval options (dataset modules may choose to implement them)
     parser.add_argument("--retrieval_method", type=str, choices=["none", "bm25s", "pyserini", "qld", "dense-bge", "dense-gte", "dense-api"], help="Retrieval method to run before generation")
     parser.add_argument("--retrieval_k", type=int, help="Top-k items to retrieve")
     parser.add_argument("--retrieval_faiss_type", type=str, choices=["FlatIP", "HNSW", "IVF"], help="FAISS index type for dense retrieval")
@@ -520,7 +519,9 @@ def run_worker(worker_id, num_workers, merged_args, cfg, run_root, barrier):
                     # Write final results once
                     if worker_id == 0:
                         import json
-                        result_path = os.path.join(run_root, model_id.replace("/","_"), 'result.json')
+                        model_dir = os.path.join(run_root, model_id.replace("/","_"))
+                        os.makedirs(model_dir, exist_ok=True)
+                        result_path = os.path.join(model_dir, 'result.json')
                         with open(result_path, 'w', encoding='utf-8') as f:
                             json.dump(results, f, ensure_ascii=False, indent=2)
                         print(f"Results saved to {result_path}")

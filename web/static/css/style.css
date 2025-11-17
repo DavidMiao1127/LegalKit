@@ -16,6 +16,10 @@ body {
     background-color: var(--light-bg);
 }
 
+.main-container {
+    max-width: 1800px;
+}
+
 /* Navigation */
 .navbar-brand {
     font-weight: bold;
@@ -23,8 +27,12 @@ body {
 }
 
 .navbar-brand i {
-    margin-right: 0.5rem;
+    margin-right: -15rem;
     color: #f39c12;
+}
+
+.right-group {
+    margin-right: -15rem;
 }
 
 /* Cards */
@@ -39,6 +47,8 @@ body {
     background-color: white;
     border-bottom: 1px solid #e9ecef;
     border-radius: var(--border-radius) var(--border-radius) 0 0 !important;
+    text-align: left;
+    padding: 0.85rem 1.5rem;
 }
 
 .card-title {
@@ -46,8 +56,19 @@ body {
     font-weight: 600;
 }
 
+.card-header .card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: flex-start;
+}
+
+.card-body {
+    padding: 1rem 1.5rem;
+}
+
 .card-title i {
-    margin-right: 0.5rem;
+    margin-right: 1.0rem;
     color: var(--secondary-color);
 }
 
@@ -241,6 +262,19 @@ body {
     margin-right: 0.5rem;
 }
 
+/* Datasets grid (system tab middle column) */
+.datasets-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+@media (max-width: 992px) {
+    .datasets-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Task table */
 .task-row {
     cursor: pointer;
@@ -279,7 +313,7 @@ body {
 }
 
 /* Responsive design */
-@media (max-width: 768px) {
+@media (max-width: 800px) {
     .container {
         padding: 0 1rem;
     }
@@ -366,4 +400,80 @@ body {
 
 .score-low {
     color: var(--danger-color);
+}
+
+/* Multi-column configuration grid */
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+
+.config-item {
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 0.55rem 0.75rem 0.7rem;
+    box-shadow: var(--box-shadow);
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
+.config-item .form-label.fw-bold {
+    border: none;
+    padding: 0;
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: left;
+}
+
+.config-item small.form-text { margin-top: 2px; }
+
+.grid-full { grid-column: 1 / -1; }
+
+@media (min-width: 1600px) {
+    .config-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+}
+
+@media (max-width: 992px) {
+    .config-grid { grid-template-columns: 1fr; }
+}
+
+/* Tighten vertical spacing inside grid items */
+.config-item .row { margin-bottom: 0.35rem; }
+.config-item .mb-4 { margin-bottom: 0.75rem !important; }
+.config-item .form-control, .config-item .form-select {
+    font-size: 0.82rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+}
+.config-item label.form-label { font-size: 0.74rem; }
+
+/* Compact model path + search button row */
+.model-path-group .form-control {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.model-path-group .btn {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+
+#apiConfig .form-control {
+    width: 100%;
+}
+
+.dataset-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.dataset-col small {
+    font-size: 0.7rem;
 }

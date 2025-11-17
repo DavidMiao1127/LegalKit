@@ -1,0 +1,19 @@
+args:
+  api_key: sk-jwebxbzbipkkcaekohbvqefknpnljinkrxfwkkvajmzvfvbx
+  api_url: https://api.siliconflow.cn/v1/chat/completions
+  batch_size: 1
+  datasets:
+  - LexEval
+  json_inputs: {}
+  max_tokens: 2048
+  models:
+  - api:Qwen/Qwen3-8B
+  num_workers: 1
+  repetition_penalty: 1
+  retrieval_method: none
+  sub_tasks:
+  - 2-2
+  task: all
+  temperature: 0.7
+  tensor_parallel: 1
+  top_p: 0.9

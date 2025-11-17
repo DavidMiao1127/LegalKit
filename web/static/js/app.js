@@ -43,6 +43,28 @@ class LegalKitApp {
             }
         });
 
+        // Retrieval toggle and method-dependent UI
+        const retrievalSwitch = document.getElementById('retrievalSwitch');
+        const retrievalConfig = document.getElementById('retrievalConfig');
+        const retrievalMethod = document.getElementById('retrievalMethod');
+        const embedApiGroup = document.getElementById('embedApiGroup');
+        const embedBatchGroup = document.getElementById('embedBatchGroup');
+
+        const updateRetrievalMethodUI = () => {
+            const method = retrievalMethod.value;
+            const isDense = method && method.startsWith('dense');
+            const isApi = method === 'dense-api';
+            embedApiGroup.style.display = isApi ? 'flex' : 'none';
+            embedBatchGroup.style.display = isDense ? 'flex' : 'none';
+        };
+
+        retrievalSwitch.addEventListener('change', (e) => {
+            retrievalConfig.style.display = e.target.checked ? 'block' : 'none';
+        });
+        retrievalMethod.addEventListener('change', updateRetrievalMethodUI);
+        // Initialize retrieval UI state
+        updateRetrievalMethodUI();
+
         // Judge toggle
         const judgeSwitch = document.getElementById('judgeSwitch');
         judgeSwitch.addEventListener('change', (e) => {
@@ -166,6 +188,7 @@ class LegalKitApp {
             this.displaySystemInfo(info);
             this.displayGpuInfo(info.gpu_info);
             this.displaySupportedDatasets(info.datasets);
+            this.displaySupportedBackends(info.accelerators || []);
         } catch (error) {
             console.error('Error loading system info:', error);
             document.getElementById('systemInfo').innerHTML = 
@@ -175,6 +198,10 @@ class LegalKitApp {
 
     displaySystemInfo(info) {
         const systemInfoDiv = document.getElementById('systemInfo');
+        const datasetsCount = (info.datasets && info.datasets.length) ? info.datasets.length : 18;
+        const subtasksCount = info.subtasks_total || info.subtasks_count || 312;
+        const acceleratorsCount = (info.accelerators && info.accelerators.length) ? info.accelerators.length : 3;
+
         systemInfoDiv.innerHTML = `
             <div class="system-metric">
                 <span class="metric-value">${info.gpu_count}</span>
@@ -183,20 +210,20 @@ class LegalKitApp {
             <div class="row">
                 <div class="col-4">
                     <div class="text-center">
-                        <strong>12</strong><br>
+                        <strong>${datasetsCount}</strong><br>
                         <small class="text-muted">${this.t('metric_datasets')}</small>
                     </div>
                 </div>
                 <div class="col-4">
                     <div class="text-center">
-                        <strong>${info.accelerators.length}</strong><br>
-                        <small class="text-muted">${this.t('metric_accelerators')}</small>
+                        <strong>${subtasksCount}</strong><br>
+                        <small class="text-muted">${this.t('metric_subtasks')}</small>
                     </div>
                 </div>
                 <div class="col-4">
                     <div class="text-center">
-                        <strong>6</strong><br>
-                        <small class="text-muted">${this.t('metric_task_types')}</small>
+                        <strong>${acceleratorsCount}</strong><br>
+                        <small class="text-muted">${this.t('metric_accelerators')}</small>
                     </div>
                 </div>
             </div>
@@ -232,6 +259,22 @@ class LegalKitApp {
         `).join('');
 
         datasetsDiv.innerHTML = datasetItems;
+    }
+
+    displaySupportedBackends(backends) {
+        const div = document.getElementById('supportedBackends');
+        if (!div) return;
+        if (!backends || backends.length === 0) {
+            div.innerHTML = `<div class="alert alert-warning">${this.t('no_backends') || 'No accelerators configured'}</div>`;
+            return;
+        }
+        const items = backends.map(b => `
+            <div class="dataset-item">
+                <i class="bi bi-cpu"></i>
+                ${b}
+            </div>
+        `).join('');
+        div.innerHTML = items;
     }
 
     async loadRecentTasks() {
@@ -345,11 +388,6 @@ class LegalKitApp {
                         <button class="btn btn-outline-primary" onclick="event.stopPropagation(); app.showTaskDetail('${task.id}')">
                             <i class="bi bi-eye"></i>
                         </button>
-                        ${task.status === 'completed' ? `
-                            <button class="btn btn-outline-success" onclick="event.stopPropagation(); app.showTaskResults('${task.id}')">
-                                <i class="bi bi-graph-up"></i>
-                            </button>
-                        ` : ''}
                     </div>
                 </td>
             </tr>
@@ -491,6 +529,32 @@ class LegalKitApp {
             config.task = 'eval';
         }
 
+        // Retrieval section
+        const retrievalEnabled = document.getElementById('retrievalSwitch').checked;
+        if (retrievalEnabled) {
+            const rMethod = document.getElementById('retrievalMethod').value;
+            const rK = parseInt(document.getElementById('retrievalK').value);
+            const rFaiss = document.getElementById('retrievalFaissType').value;
+            if (rMethod) config.retrieval_method = rMethod;
+            if (!isNaN(rK)) config.retrieval_k = rK;
+            if (rMethod && rMethod.startsWith('dense')) {
+                if (rFaiss) config.retrieval_faiss_type = rFaiss;
+                const ebs = parseInt(document.getElementById('embedBatchSize').value);
+                if (!isNaN(ebs)) config.embed_batch_size = ebs;
+                if (rMethod === 'dense-api') {
+                    const emn = document.getElementById('embedModelName').value.trim();
+                    const eurl = document.getElementById('embedApiUrl').value.trim();
+                    const ekey = document.getElementById('embedApiKey').value.trim();
+                    if (emn) config.embed_model_name = emn;
+                    if (eurl) config.embed_api_url = eurl;
+                    if (ekey) config.embed_api_key = ekey;
+                }
+            }
+        } else {
+            // Explicitly disable retrieval if toggle off
+            config.retrieval_method = 'none';
+        }
+
         // Judge section
         const judgeEnabled = document.getElementById('judgeSwitch').checked;
         if (judgeEnabled) {
@@ -549,6 +613,15 @@ class LegalKitApp {
             // Provide default for safety
             config.judge_batch_size = 4;
         }
+
+        // Retrieval validation
+        if (config.retrieval_method && config.retrieval_method !== 'none') {
+            if (config.retrieval_method === 'dense-api') {
+                if (!config.embed_api_url || !config.embed_api_key || !config.embed_model_name) {
+                    throw new Error(this.t('validate_need_embed_api'));
+                }
+            }
+        }
     }
 
     async showTaskDetail(taskId) {
@@ -560,14 +633,58 @@ class LegalKitApp {
                 throw new Error(task.error || this.t('err_get_task_detail'));
             }
 
-            this.displayTaskDetail(task);
+            let results = task.results;
+            let resultsError = null;
+
+            if ((!results || Object.keys(results).length === 0) && task.status === 'completed') {
+                try {
+                    const resultsResponse = await fetch(`${this.baseUrl}/tasks/${taskId}/results`);
+                    const payload = await resultsResponse.json().catch(() => ({}));
+                    if (!resultsResponse.ok) {
+                        throw new Error(payload.error || resultsResponse.statusText);
+                    }
+                    results = payload;
+                } catch (error) {
+                    resultsError = error.message;
+                }
+            }
+
+            this.displayTaskDetail(task, results, resultsError);
             new bootstrap.Modal(document.getElementById('taskDetailModal')).show();
         } catch (error) {
             this.showError(this.t('err_get_task_detail') + ': ' + error.message);
         }
     }
 
-    displayTaskDetail(task) {
+    displayTaskDetail(task, results = null, resultsError = null) {
+        const resultsSection = (() => {
+            if (task.status === 'completed') {
+                if (resultsError) {
+                    return `
+                        <div class="mt-3">
+                            <h6>${this.t('modal_results')}</h6>
+                            <div class="alert alert-warning">${this.t('err_get_results')}: ${resultsError}</div>
+                        </div>
+                    `;
+                }
+                if (results && Object.keys(results).length > 0) {
+                    return `
+                        <div class="mt-3">
+                            <h6>${this.t('modal_results')}</h6>
+                            ${this.renderResultsContent(results)}
+                        </div>
+                    `;
+                }
+                return `
+                    <div class="mt-3">
+                        <h6>${this.t('modal_results')}</h6>
+                        <div class="alert alert-info">${this.t('detail_no_results')}</div>
+                    </div>
+                `;
+            }
+            return '';
+        })();
+
         const content = `
             <div class="row">
                 <div class="col-md-6">
@@ -592,29 +709,17 @@ class LegalKitApp {
                     <div class="alert alert-danger">${task.error}</div>
                 </div>
             ` : ''}
+            ${resultsSection}
         `;
 
         document.getElementById('taskDetailContent').innerHTML = content;
     }
 
-    async showTaskResults(taskId) {
-        try {
-            const response = await fetch(`${this.baseUrl}/tasks/${taskId}/results`);
-            const results = await response.json();
-
-            if (!response.ok) {
-                throw new Error(results.error || this.t('err_get_results'));
-            }
-
-            this.displayTaskResults(results);
-            new bootstrap.Modal(document.getElementById('resultsModal')).show();
-        } catch (error) {
-            this.showError(this.t('err_get_results') + ': ' + error.message);
+    renderResultsContent(results) {
+        if (!results || Object.keys(results).length === 0) {
+            return `<div class="alert alert-info">${this.t('detail_no_results')}</div>`;
         }
-    }
 
-    displayTaskResults(results) {
-        let content = '<div class="row">';
         const groupMetricKeys = (resultObj) => {
             const groups = { primary: {}, judge: {}, classic: {}, other: {} };
             for (const [k, v] of Object.entries(resultObj)) {
@@ -636,29 +741,30 @@ class LegalKitApp {
             `;
         };
 
+        let content = '<div class="row">';
         Object.entries(results).forEach(([modelId, modelResults]) => {
             content += `<div class="col-12 mb-4"><h5>${modelId}</h5>`;
             Object.entries(modelResults).forEach(([taskId, result]) => {
                 const groups = groupMetricKeys(result);
-                                const primaryScore = result.score;
+                const primaryScore = result.score;
                 content += `
                     <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                         <span><code>${taskId}</code></span>
-                                                <span class="score-badge ${this.getScoreClass(primaryScore)}">${primaryScore !== undefined ? primaryScore.toFixed(3) : this.t('na')}</span>
+                        <span class="score-badge ${this.getScoreClass(primaryScore)}">${primaryScore !== undefined ? primaryScore.toFixed(3) : this.t('na')}</span>
                       </div>
                       <div class="card-body">
-                                                ${renderGroup(this.t('results_primary'), groups.primary)}
-                                                ${renderGroup(this.t('results_judge'), groups.judge)}
-                                                ${renderGroup(this.t('results_classic'), groups.classic)}
-                                                ${renderGroup(this.t('results_other'), groups.other)}
+                        ${renderGroup(this.t('results_primary'), groups.primary)}
+                        ${renderGroup(this.t('results_judge'), groups.judge)}
+                        ${renderGroup(this.t('results_classic'), groups.classic)}
+                        ${renderGroup(this.t('results_other'), groups.other)}
                       </div>
                     </div>`;
             });
             content += '</div>';
         });
         content += '</div>';
-        document.getElementById('resultsContent').innerHTML = content;
+        return content;
     }
 
     getScoreClass(score) {
@@ -743,11 +849,23 @@ const I18N = {
         refresh: 'Refresh',
         gpu_title: 'GPU Info',
         datasets_title: 'Supported Datasets',
+    backends_title: 'Supported Backends',
         start_eval: 'Start Evaluation',
     model: 'Model',
     action: 'Action',
     modal_task_detail: 'Task Detail',
     modal_results: 'Evaluation Results',
+        // Retrieval
+        section_retrieval_title: 'Retrieval Configuration',
+        switch_retrieval_enable: 'Enable retrieval stage before generation',
+        label_retrieval_method: 'Retrieval method',
+        label_retrieval_k: 'Top-k',
+        label_faiss_type: 'FAISS index',
+        label_embed_model_name: 'Embedding model',
+        label_embed_api_url: 'Embedding API URL',
+        label_embed_api_key: 'Embedding API Key',
+        label_embed_batch_size: 'Embedding batch size',
+        hint_retrieval_scope: 'Applies to datasets that implement a retrieval stage (e.g., LexRAG). Artifacts are saved under run_output.',
         // Form sections and labels
         section_model_config_title: 'Model Configuration',
         label_model_type: 'Model Type',
@@ -757,6 +875,7 @@ const I18N = {
         label_model_path: 'Model path/name',
         ph_model_path: 'Enter model path or name',
         label_dataset_select: 'Dataset Selection',
+    label_dataset_list: 'Datasets',
         hint_multi_select: 'Hold Ctrl to multi-select',
         label_subtasks: 'Subtasks (optional)',
         ph_subtasks: 'e.g.: 2-1,2-2',
@@ -815,6 +934,8 @@ const I18N = {
         metric_datasets: 'Datasets',
         metric_accelerators: 'Accelerators',
         metric_task_types: 'Task types',
+        metric_subtasks: 'Subtasks',
+    no_backends: 'No accelerators configured',
         err_init: 'Failed to load initial data: ',
         err_load_datasets: 'Failed to load datasets',
         err_load_system: 'Failed to load system info',
@@ -830,6 +951,7 @@ const I18N = {
         validate_need_api: 'API model requires API URL and API Key',
         validate_need_json_paths: 'JSON evaluation needs json_paths',
         validate_json_task_eval: 'Task must be eval in JSON mode',
+    validate_need_embed_api: 'Embedding API mode requires API URL, API Key and model name',
         detail_basic: 'Basic Info',
         detail_task_id: 'Task ID',
         detail_status: 'Status',
@@ -839,6 +961,7 @@ const I18N = {
         detail_progress: 'Progress',
         detail_config: 'Config',
         detail_error: 'Error',
+    detail_no_results: 'No evaluation results available yet',
         results_primary: 'Primary',
         results_judge: 'LLM Judge Metrics',
         results_classic: 'Classic Metrics (BLEU/Rouge/BERTScore)',
@@ -861,11 +984,23 @@ const I18N = {
         refresh: '刷新',
         gpu_title: 'GPU信息',
         datasets_title: '支持的数据集',
+    backends_title: '支持的加速后端',
         start_eval: '开始评测',
     model: '模型',
     action: '操作',
         modal_task_detail: '任务详情',
         modal_results: '评测结果',
+        // Retrieval
+        section_retrieval_title: '检索配置',
+        switch_retrieval_enable: '在生成前启用检索阶段',
+        label_retrieval_method: '检索方法',
+        label_retrieval_k: 'Top-k',
+        label_faiss_type: 'FAISS 索引',
+        label_embed_model_name: 'Embedding 模型',
+        label_embed_api_url: 'Embedding API 地址',
+        label_embed_api_key: 'Embedding API Key',
+        label_embed_batch_size: 'Embedding 批大小',
+        hint_retrieval_scope: '仅对实现了检索阶段的数据集生效（如 LexRAG），产物保存在 run_output。',
         // Form sections and labels
         section_model_config_title: '模型配置',
         label_model_type: '模型类型',
@@ -875,6 +1010,7 @@ const I18N = {
         label_model_path: '模型路径/名称',
         ph_model_path: '输入模型路径或名称',
         label_dataset_select: '数据集选择',
+    label_dataset_list: '数据集',
         hint_multi_select: '按住Ctrl键可多选',
         label_subtasks: '子任务（可选）',
         ph_subtasks: '例如: 2-1,2-2',
@@ -935,6 +1071,8 @@ const I18N = {
         metric_datasets: '数据集',
         metric_accelerators: '加速器',
         metric_task_types: '任务类型',
+        metric_subtasks: '子任务',
+    no_backends: '未配置加速后端',
         err_init: '加载初始数据失败: ',
         err_load_datasets: '加载数据集失败',
         err_load_system: '加载系统信息失败',
@@ -950,6 +1088,7 @@ const I18N = {
         validate_need_api: 'API模型需要提供API URL和API Key',
         validate_need_json_paths: 'JSON 评测模式需要提供 json_paths',
         validate_json_task_eval: 'JSON 评测模式下任务类型必须为 eval',
+    validate_need_embed_api: 'Embedding API 模式需要提供 API URL、API Key 和模型名',
         detail_basic: '基本信息',
         detail_task_id: '任务ID',
         detail_status: '状态',
@@ -959,6 +1098,7 @@ const I18N = {
         detail_progress: '进度',
         detail_config: '配置参数',
         detail_error: '错误信息',
+    detail_no_results: '暂无评测结果',
         results_primary: '主指标',
         results_judge: 'LLM Judge 指标',
         results_classic: '经典指标 (BLEU/Rouge/BERTScore)',

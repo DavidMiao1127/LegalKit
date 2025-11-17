@@ -10,12 +10,12 @@
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
+        <div class="container-xl">
             <a class="navbar-brand" href="#">
                 <i class="bi bi-scales"></i>
                 <span data-i18n="brand">LegalKit: Legal Model Evaluation Toolkit</span>
             </a>
-            <div class="navbar-nav ms-auto">
+            <div class="navbar-nav ms-auto d-flex align-items-center right-group">
                 <a class="nav-link" href="#dashboard" data-i18n="nav_dashboard">Evaluation</a>
                 <a class="nav-link" href="#results" data-i18n="nav_results">Results</a>
                 <a class="nav-link" href="#system" data-i18n="nav_system">System</a>
@@ -25,8 +25,7 @@
             </div>
         </div>
     </nav>
-
-    <div class="container mt-4">
+    <div class="container-xl mt-4 main-container">
         <!-- 页面导航标签 -->
         <ul class="nav nav-tabs mb-4" id="mainTabs">
             <li class="nav-item">
@@ -60,11 +59,12 @@
                             </div>
                             <div class="card-body">
                                 <form id="evaluationForm">
+                                    <div class="config-grid">
                                     <!-- 模型配置 / Model Configuration -->
-                                    <div class="mb-4">
+                                    <div class="mb-4 config-item">
                                         <label class="form-label fw-bold" data-i18n="section_model_config_title">Model Configuration</label>
-                                        <div class="row">
-                                            <div class="col-md-6">
+                                        <div class="row align-items-end">
+                                            <div class="col-md-6 mb-2 mb-md-0">
                                                 <label class="form-label" data-i18n="label_model_type">Model Type</label>
                                                 <select class="form-select" id="modelType">
                                                     <option value="local" data-i18n="opt_model_local">Local model</option>
@@ -72,9 +72,9 @@
                                                     <option value="api" data-i18n="opt_model_api">API model</option>
                                                 </select>
                                             </div>
-                                            <div class="col-md-6">
+                                            <div class="col-md-6 mb-2 mb-md-0">
                                                 <label class="form-label" data-i18n="label_model_path">Model path/name</label>
-                                                <div class="input-group">
+                                                <div class="input-group input-group-sm model-path-group">
                                                     <input type="text" class="form-control" id="modelPath" 
                                                            placeholder="Enter model path or name" data-i18n-placeholder="ph_model_path">
                                                     <button type="button" class="btn btn-outline-secondary" id="discoverModels">
@@ -83,13 +83,13 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="row mt-2" id="apiConfig" style="display: none;">
-                                            <div class="col-md-6">
+                                        <div class="row mt-2 api-row" id="apiConfig" style="display: none;">
+                                            <div class="col-12 mb-2">
                                                 <label class="form-label">API URL</label>
                                                 <input type="text" class="form-control" id="apiUrl" 
                                                        placeholder="https://api.openai.com/v1/chat/completions">
                                             </div>
-                                            <div class="col-md-6">
+                                            <div class="col-12">
                                                 <label class="form-label">API Key</label>
                                                 <input type="password" class="form-control" id="apiKey" 
                                                        placeholder="your-api-key">
@@ -101,16 +101,17 @@
                                     </div>
 
                                     <!-- 数据集配置 / Dataset Selection -->
-                                    <div class="mb-4">
+                                    <div class="mb-4 config-item">
                                         <label class="form-label fw-bold" data-i18n="label_dataset_select">Dataset Selection</label>
-                                        <div class="row">
-                                            <div class="col-md-6">
+                                        <div class="row g-2 align-items-start">
+                                            <div class="col-md-6 dataset-col">
+                                                <label class="form-label" data-i18n="label_dataset_list">Datasets</label>
                                                 <select class="form-select" id="datasetSelect" multiple>
                                                     <!-- 动态加载数据集 -->
                                                 </select>
                                                 <small class="form-text text-muted" data-i18n="hint_multi_select">Hold Ctrl to multi-select</small>
                                             </div>
-                                            <div class="col-md-6">
+                                            <div class="col-md-6 dataset-col">
                                                 <label class="form-label" data-i18n="label_subtasks">Subtasks (optional)</label>
                                                 <input type="text" class="form-control" id="subTasks" 
                                                        placeholder="e.g.: 2-1,2-2" data-i18n-placeholder="ph_subtasks">
@@ -120,7 +121,7 @@
                                     </div>
 
                                     <!-- 运行配置 / Run Configuration -->
-                                    <div class="mb-4">
+                                    <div class="mb-4 config-item">
                                         <label class="form-label fw-bold" data-i18n="section_run_config_title">Run Configuration</label>
                                         <div class="row">
                                             <div class="col-md-4">
@@ -159,26 +160,85 @@
                                         </div>
                                     </div>
 
+                                    <!-- 检索配置 / Retrieval Configuration -->
+                                    <div class="mb-4 config-item">
+                                        <label class="form-label fw-bold" data-i18n="section_retrieval_title">Retrieval Configuration</label>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="retrievalSwitch">
+                                            <label class="form-check-label" for="retrievalSwitch" data-i18n="switch_retrieval_enable">Enable retrieval stage before generation</label>
+                                        </div>
+                                        <div id="retrievalConfig" class="mt-2" style="display:none;">
+                                            <div class="row">
+                                                <div class="col-md-4">
+                                                    <label class="form-label" data-i18n="label_retrieval_method">Retrieval method</label>
+                                                    <select class="form-select" id="retrievalMethod">
+                                                        <option value="bm25s">bm25s</option>
+                                                        <option value="pyserini">pyserini (BM25)</option>
+                                                        <option value="qld">pyserini (QLD)</option>
+                                                        <option value="dense-bge">dense-bge</option>
+                                                        <option value="dense-gte">dense-gte</option>
+                                                        <option value="dense-api">dense-api</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" data-i18n="label_retrieval_k">Top-k</label>
+                                                    <input type="number" class="form-control" id="retrievalK" value="5" min="1" max="100">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" data-i18n="label_faiss_type">FAISS index</label>
+                                                    <select class="form-select" id="retrievalFaissType">
+                                                        <option value="FlatIP">FlatIP</option>
+                                                        <option value="HNSW">HNSW</option>
+                                                        <option value="IVF">IVF</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="row mt-2" id="embedApiGroup" style="display:none;">
+                                                <div class="col-md-4">
+                                                    <label class="form-label" data-i18n="label_embed_model_name">Embedding model</label>
+                                                    <input type="text" class="form-control" id="embedModelName" placeholder="text-embedding-3-large">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" data-i18n="label_embed_api_url">Embedding API URL</label>
+                                                    <input type="text" class="form-control" id="embedApiUrl" placeholder="https://api.example.com/v1">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" data-i18n="label_embed_api_key">Embedding API Key</label>
+                                                    <input type="password" class="form-control" id="embedApiKey" placeholder="embed-api-key">
+                                                </div>
+                                            </div>
+                                            <div class="row mt-2" id="embedBatchGroup" style="display:none;">
+                                                <div class="col-md-4">
+                                                    <label class="form-label" data-i18n="label_embed_batch_size">Embedding batch size</label>
+                                                    <input type="number" class="form-control" id="embedBatchSize" value="32" min="1" max="1024">
+                                                </div>
+                                            </div>
+                                            <small class="text-muted" data-i18n="hint_retrieval_scope">Applies to datasets that implement a retrieval stage (e.g., LexRAG). Artifacts are saved under run_output.</small>
+                                        </div>
+                                    </div>
+
                                     <!-- 生成参数 / Generation Parameters -->
-                                    <div class="mb-4">
+                                    <div class="mb-4 config-item">
                                         <label class="form-label fw-bold" data-i18n="section_generation_params_title">Generation Parameters</label>
-                                        <div class="row">
-                                            <div class="col-md-3">
+                                        <div class="row g-2">
+                                            <div class="col-md-6">
                                                 <label class="form-label" data-i18n="label_temperature">Temperature</label>
                                                 <input type="number" class="form-control" id="temperature" 
                                                        value="0.7" min="0" max="2" step="0.1">
                                             </div>
-                                            <div class="col-md-3">
+                                            <div class="col-md-6">
                                                 <label class="form-label">Top-p</label>
                                                 <input type="number" class="form-control" id="topP" 
                                                        value="0.9" min="0" max="1" step="0.1">
                                             </div>
-                                            <div class="col-md-3">
+                                        </div>
+                                        <div class="row g-2">
+                                            <div class="col-md-6">
                                                 <label class="form-label" data-i18n="label_max_tokens">Max tokens</label>
                                                 <input type="number" class="form-control" id="maxTokens" 
                                                        value="2048" min="1" max="32768">
                                             </div>
-                                            <div class="col-md-3">
+                                            <div class="col-md-6">
                                                 <label class="form-label" data-i18n="label_repetition_penalty">Repetition penalty</label>
                                                 <input type="number" class="form-control" id="repetitionPenalty" 
                                                        value="1.0" min="1" max="2" step="0.1">
@@ -187,7 +247,7 @@
                                     </div>
 
                                     <!-- JSON 离线评测 / JSON offline evaluation -->
-                                    <div class="mb-4">
+                                    <div class="mb-4 config-item">
                                         <label class="form-label fw-bold" data-i18n="section_json_eval_title">JSON offline evaluation (optional)</label>
                                         <div class="form-check form-switch">
                                             <input class="form-check-input" type="checkbox" id="jsonEvalSwitch">
@@ -211,7 +271,7 @@
                                     </div>
 
                                     <!-- LLM Judge 配置 / LLM Judge configuration -->
-                                    <div class="mb-4">
+                                    <div class="mb-4 config-item">
                                         <label class="form-label fw-bold" data-i18n="section_judge_title">LLM Judge configuration (optional)</label>
                                         <div class="form-check form-switch">
                                             <input class="form-check-input" type="checkbox" id="judgeSwitch">
@@ -274,11 +334,12 @@
                                         </div>
                                     </div>
 
-                                    <div class="d-grid">
-                                        <button type="submit" class="btn btn-primary btn-lg">
+                                    <div class="d-grid grid-full">
+                                        <button type="submit" class="btn btn-primary btn-lg w-100">
                                             <i class="bi bi-play-circle"></i> <span data-i18n="start_eval">Start Evaluation</span>
                                         </button>
                                     </div>
+                                    </div><!-- end config-grid -->
                                 </form>
                             </div>
                         </div>
@@ -344,9 +405,10 @@
 
             <!-- 系统信息页面 -->
             <div class="tab-pane fade" id="system">
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="card">
+                <div class="row g-3">
+                    <!-- Left: GPU Status -->
+                    <div class="col-lg-4 col-md-12">
+                        <div class="card h-100">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">
                                     <i class="bi bi-gpu-card"></i> <span data-i18n="gpu_title">GPU Info</span>
@@ -357,15 +419,31 @@
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-6">
-                        <div class="card">
+
+                    <!-- Middle: Supported Datasets (two columns) -->
+                    <div class="col-lg-5 col-md-7">
+                        <div class="card h-100">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">
                                     <i class="bi bi-database"></i> <span data-i18n="datasets_title">Supported Datasets</span>
                                 </h5>
                             </div>
                             <div class="card-body">
-                                <div id="supportedDatasets"></div>
+                                <div id="supportedDatasets" class="datasets-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Supported Backends -->
+                    <div class="col-lg-3 col-md-5">
+                        <div class="card h-100">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-cpu"></i> <span data-i18n="backends_title">Supported Backends</span>
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="supportedBackends"></div>
                             </div>
                         </div>
                     </div>
@@ -384,21 +462,6 @@
                 </div>
                 <div class="modal-body">
                     <div id="taskDetailContent"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 结果查看模态框 -->
-    <div class="modal fade" id="resultsModal" tabindex="-1">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" data-i18n="modal_results">Evaluation Results</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div id="resultsContent"></div>
                 </div>
             </div>
         </div>

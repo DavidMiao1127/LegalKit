@@ -13,7 +13,7 @@ from flask_cors import CORS
 import yaml
 from typing import Dict, Any, List
 import queue
-import multiprocessing as mp
+import torch.multiprocessing as mp
 from pathlib import Path
 
 # Add parent directory to Python path to import legalkit
@@ -32,8 +32,8 @@ running_tasks = {}  # task_id -> task_info
 task_lock = threading.Lock()
 
 # Available datasets and models
-AVAILABLE_DATASETS = ["CaseGen", "JECQA", "LAiW", "LawBench", "LegalBench", "LexEval", "LexRAG", "LegalAgentBench", "CAIL2025"]
-ACCELERATORS = ["vllm", "lmdeploy"]
+AVAILABLE_DATASETS = ["LawBench", "LexEval", "LegalBench", "LAiW", "CaseGen", "JECQA", "LexRAG", "LexGLue", "LEXTREME", "LegalAgentBench", "CAIL2018", "CAIL2019", "CAIL2020", "CAIL2021", "CAIL2022", "CAIL2023", "CAIL2024"]
+ACCELERATORS = ["vLLM", "LMDeploy", "SGLang"]
 TASK_PHASES = ["infer", "eval", "all"]
 
 class TaskManager:
